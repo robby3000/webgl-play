@@ -1,6 +1,6 @@
 import { noiseUtils } from "./utils/noiseUtils";
 import { simplex_noise } from "./utils/simplexNoise";
-import { CreateFragmentShader, FragmentShaderUniforms } from "../types";
+import { CreateFragmentShader, FragmentShaderUniforms } from "./types";
 
 const createFragmentShader: CreateFragmentShader = (options) => {
   const {
