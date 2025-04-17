@@ -1,49 +1,99 @@
-Okay, I have fetched and reviewed the content of the blog post "A flowing WebGL gradient, deconstructed" by Alex Harri. It's an excellent breakdown and closely matches the structure and techniques used in your `src/play.ts` shader code.
+# Product Development Plan: Interactive WebGL Gradient Controls
 
-Based on the blog post and the existing code, here are some suggestions for control tools (sliders, switches, color pickers) that would allow you to modify the animated gradient effects in interesting ways. These map directly to parameters or concepts discussed in the post and present in your code:
+This plan combines the original parameter control ideas with enhancements for usability, accessibility, and extensibility. It includes a development roadmap for staged implementation.
 
-**1. Core Animation & Appearance:**
+---
 
-*   **Overall Speed:** (Slider) Control the master speed of all animations (`u_time` multiplier). This affects waves, background noise, and blur evolution.
-*   **Gradient Colors:** (Color Pickers / Presets) Allow changing the gradient lookup.
-    *   Option A: Define 3-5 key colors with color pickers, and regenerate the `u_gradient` texture in JavaScript.
-    *   Option B: Provide presets (like the ones shown in the blog post) that load different pre-generated gradient textures.
+## 1. Core Animation & Appearance
 
-**2. Wave Controls (Could have separate controls for Wave 1 & Wave 2):**
+- **Overall Speed:** Slider to control the master speed of all animations (`u_time` multiplier).
+- **Gradient Colors:** Color pickers or presets to change the gradient lookup.
+  - Option A: 3-5 key colors with color pickers, regenerating the `u_gradient` texture in JS.
+  - Option B: Presets to load different pre-generated gradient textures.
 
-*   **Wave Y Position:** (Sliders) Controls the vertical position of each wave (`WAVE1_Y`, `WAVE2_Y` constants).
-*   **Wave Amplitude:** (Sliders) Controls the height/intensity of each wave (`WAVE1_HEIGHT`, `WAVE2_HEIGHT` constants).
-*   **Wave Shape Scale:** (Slider) Controls the horizontal scale/frequency of the noise shaping the waves (`L` constant(s) in `wave_y_noise`). Smaller values = larger features, larger values = smaller features.
-*   **Wave Shape Speed:** (Slider) Controls how fast the wave shape itself changes (`S` constant in `wave_y_noise`).
-*   **Wave Flow Speed:** (Slider) Controls the horizontal drift speed of the waves (`F` constant in `wave_y_noise`).
+## 2. Wave Controls (Separate for Wave 1 & Wave 2)
 
-**3. Background Noise Controls:**
+- **Wave Y Position:** Slider for vertical position (`WAVE1_Y`, `WAVE2_Y`).
+- **Wave Amplitude:** Slider for height/intensity (`WAVE1_HEIGHT`, `WAVE2_HEIGHT`).
+- **Wave Shape Scale:** Slider for horizontal scale/frequency of noise (`L` in `wave_y_noise`).
+- **Wave Shape Speed:** Slider for how fast the wave shape changes (`S` in `wave_y_noise`).
+- **Wave Flow Speed:** Slider for horizontal drift speed (`F` in `wave_y_noise`).
 
-*   **Noise Pattern Scale:** (Sliders) Controls the size/zoom level of the different noise layers (`L1`, `L2`, `L3` constants in `background_noise`).
-*   **Noise Vertical Stretch:** (Slider) Controls the vertical stretching of the noise (`Y_SCALE` constant in `background_noise`).
-*   **Noise Swirl Speed:** (Sliders) Controls the speed of the time evolution for each noise layer (`S` constant in `background_noise`).
-*   **Noise Flow Speed:** (Sliders) Controls the horizontal drift speed for each noise layer (`F` multiplier constants in `background_noise`).
+## 3. Background Noise Controls
 
-**4. Blur Controls:**
+- **Noise Pattern Scale:** Sliders for size/zoom of noise layers (`L1`, `L2`, `L3` in `background_noise`).
+- **Noise Vertical Stretch:** Slider for vertical stretching (`Y_SCALE`).
+- **Noise Swirl Speed:** Sliders for time evolution speed of each noise layer (`S`).
+- **Noise Flow Speed:** Sliders for horizontal drift speed for each noise layer (`F`).
 
-*   **Blur Amount:** (Slider) Controls the maximum blur radius (`blurAmount` currently passed as an option).
-*   **Blur Sharpness/Bias:** (Sliders) Control the `blurExponentRange` (currently passed as an option) to adjust how sharp or soft the blur appears and how it transitions.
-*   **Dynamic Blur Pattern:** (Sliders) Control the scale (`L`) and speed (`S`, `F`) of the noise used in `calc_blur` to change how the blur varies across the wave.
-*   **Blur Pulsing Speed:** (Slider) Control the speed of the overall blur bias oscillation (`S` in `calc_blur_bias`).
+## 4. Blur Controls
 
-**5. Randomization:**
+- **Blur Amount:** Slider for max blur radius (`blurAmount`).
+- **Blur Sharpness/Bias:** Sliders for `blurExponentRange` to adjust blur sharpness/transition.
+- **Dynamic Blur Pattern:** Sliders for scale (`L`) and speed (`S`, `F`) of noise in `calc_blur`.
+- **Blur Pulsing Speed:** Slider for speed of blur bias oscillation (`S` in `calc_blur_bias`).
 
-*   **Randomize Seeds/Offsets:** (Button) Randomize the various offset values used in the noise functions (`wave_y_noise`, `background_noise`, `calc_blur`). This is a great way to get unpredictable new patterns.
-*   **Randomize Parameters:** (Button) Randomize multiple parameters like scales, speeds, and amplitudes within certain bounds for completely new effects.
+## 5. Randomization
 
-**Implementation Approach:**
+- **Randomize Seeds/Offsets:** Button to randomize offsets in noise functions.
+- **Randomize Parameters:** Button to randomize multiple parameters for new effects.
 
-1.  **Modify `src/play.ts`:** Introduce new `uniform` variables (e.g., `uniform float u_wave1_y_factor;`, `uniform float u_noise_scale_L1;`, etc.) for each parameter you want to control. Replace the corresponding hardcoded constants in the GLSL code with these uniforms.
-2.  **Update `src/App.tsx`:**
-    *   Use `React.useState` to manage the state for each control value (slider positions, color values).
-    *   Add the UI elements (sliders, buttons, color inputs) within the `#control-section` div. Connect their `onChange` or `onClick` handlers to update the corresponding React state variables.
-    *   Inside the `useEffect` where the WebGL context is set up, get the locations of all the new uniforms using `gl.getUniformLocation`.
-    *   In the `render` function (the one called by `requestAnimationFrame`), before `gl.drawArrays`, update all the uniforms using the appropriate `gl.uniform*` functions based on the current values stored in the React state.
-    *   For gradient changes, you'll need logic to generate a new gradient on a temporary canvas and update the `u_gradient` texture using `gl.texImage2D` whenever the color state changes.
+-
+## 6. Enhanced Usability & UX
 
-This approach allows for interactive control over many aspects of the shader, leveraging the detailed breakdown provided in the blog post. Would you like me to start implementing some of these controls, perhaps beginning with the overall speed and wave positions?
+- **Grouping & Collapsibility:** Group related controls (e.g., Waves, Noise, Blur) and allow collapsing/expanding.
+- **Presets System:** Allow saving/loading favorite parameter sets.
+- **Live Preview & Reset:** Show live numeric values next to sliders and provide reset buttons for groups/all.
+- **Performance Monitoring:** Add an FPS counter and/or a 'Performance Mode' toggle.
+- **Accessibility:** Ensure controls are keyboard-accessible and have ARIA labels.
+- **Mobile Responsiveness:** Ensure the control panel works well on mobile devices.
+- **Undo/Redo:** Allow users to step back/forward through parameter changes.
+- **Documentation/Tooltips:** Add tooltips or inline help for each control.
+- **Animation Lock:** Prevent parameter changes during randomization if needed.
+- **Shader Hot Reload:** Enable GLSL code hot-reload for rapid shader dev.
+- **Export Button:** Allow users to export a standalone HTML file of the current gradient pattern, including all necessary shader code and parameters, so the result can be viewed independently without the app.
+
+---
+
+## Implementation Approach
+
+1. **Modify `src/play.ts`:**
+    - Introduce new `uniform` variables for each parameter to control. Replace hardcoded constants in GLSL with these uniforms.
+2. **Update `src/App.tsx`:**
+    - Use `React.useState` (or `useReducer` for many controls) for control state.
+    - Add UI elements (sliders, color pickers, buttons) in `#control-section`.
+    - Connect handlers to update React state.
+    - In `useEffect`, get uniform locations with `gl.getUniformLocation`.
+    - In the render loop, update uniforms with `gl.uniform*` using current state.
+    - For gradient changes, update the `u_gradient` texture with `gl.texImage2D` as needed.
+    - Consider a utility for batch uniform updates.
+
+---
+
+## Development Roadmap
+
+**Phase 1: Core Controls & Functionality**
+- Add sliders for overall speed, wave positions, amplitudes, and colors.
+- Implement React state and uniform updates.
+- Basic randomization buttons.
+
+**Phase 2: Advanced Controls & UI/UX**
+- Add controls for noise and blur parameters.
+- Implement grouping, collapsibility, and tooltips.
+- Add live value display and reset buttons.
+
+**Phase 3: Presets, Accessibility & Performance**
+- Preset save/load system.
+- Keyboard and ARIA accessibility.
+- FPS counter and performance mode.
+- Mobile responsiveness.
+
+**Phase 4: Power Features**
+- Undo/redo for parameter changes.
+- Animation lock during randomization.
+- Shader hot-reload for development.
+- Export Button functionality.
+
+---
+
+This plan ensures the gradient playground will be powerful, user-friendly, and maintainable. Prioritize Phase 1 for immediate interactivity, then iterate through later phases for a polished, professional tool.
