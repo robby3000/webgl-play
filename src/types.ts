@@ -1,8 +1,11 @@
-export interface FragmentShaderUniforms {
-  [key: string]: any;
-}
+// Define the structure for shader uniforms if needed elsewhere
+// export interface FragmentShaderUniforms {
+//   [key: string]: any; // Placeholder, adjust as needed
+// }
 
-export type CreateFragmentShader = (options: object) => {
-  shader: string;
-  uniforms: FragmentShaderUniforms;
-};
+// Update the function type signature
+export type CreateFragmentShader = () => string;
+// export type CreateFragmentShader = (options?: Partial<FragmentShaderUniforms>) => {
+//   shader: string;
+//   uniforms: FragmentShaderUniforms;
+// };

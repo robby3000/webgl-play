@@ -2,7 +2,7 @@ html, body {
   height: 100vh;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: hidden; /* Keep this? Might prevent body scrollbars if needed */
 }
 
 
@@ -10,17 +10,27 @@ html, body {
   height: 100vh;
 }
 
+/*
+REMOVED CSS RULES FOR #main-container, canvas, #control-section
+These styles are now handled by Tailwind classes in App.tsx
+*/
+
+/*
 #main-container {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
+*/
 
+/*
 canvas {
-  width: 100%; /* Explicitly set width to 100% */
-  height: 80vh; /* Explicitly set height to 80% of viewport height */
+  width: 100%; 
+  height: 80vh; 
 }
+*/
 
+/*
 #control-section {
   height: 20vh;
   background-color: darkgray;
@@ -29,3 +39,4 @@ canvas {
   justify-content: center;
   color: #FAF9F6;
 }
+*/
