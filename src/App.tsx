@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import createFragmentShader from "./play";
+import './App.css'; // Ensure CSS is imported
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -8,6 +9,7 @@ const App: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // --- WebGL setup code (remains the same) ---
     const gl = canvas.getContext("webgl");
     if (!gl) {
       alert("Unable to initialize WebGL. Your browser or machine may not support it.");
@@ -81,7 +83,7 @@ const App: React.FC = () => {
     const widthUniform = gl.getUniformLocation(program, "u_w");
     const heightUniform = gl.getUniformLocation(program, "u_h");
     const gradientUniform = gl.getUniformLocation(program, "u_gradient");
-    
+
     // Placeholder for gradient texture (replace with actual texture loading)
     const gradientTexture = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
@@ -92,12 +94,25 @@ const App: React.FC = () => {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.uniform1i(gradientUniform, 0); // Use texture unit 0
 
+
+    // Resize observer to handle canvas resizing
+    const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            const { width, height } = entry.contentRect;
+            canvas.width = width;
+            canvas.height = height;
+            gl.viewport(0, 0, width, height); // Update WebGL viewport
+        }
+    });
+    resizeObserver.observe(canvas);
+
+
     let time = 0;
     const render = () => {
       time += 0.01;
       gl.uniform1f(timeUniform, time);
-      gl.uniform1f(widthUniform, canvas.width);
-      gl.uniform1f(heightUniform, canvas.height);
+      gl.uniform1f(widthUniform, canvas.width); // Use actual canvas dimensions
+      gl.uniform1f(heightUniform, canvas.height); // Use actual canvas dimensions
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -105,9 +120,27 @@ const App: React.FC = () => {
     };
 
     render();
-  }, []);
 
-  return <canvas ref={canvasRef} width={window.innerWidth} height={window.innerHeight} />;
+    // Cleanup function
+    return () => {
+        resizeObserver.unobserve(canvas);
+        gl.deleteProgram(program);
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+        gl.deleteBuffer(positionBuffer);
+        gl.deleteTexture(gradientTexture);
+    };
+  }, []); // Empty dependency array ensures this runs only once on mount
+
+  return (
+    <div id="main-container">
+      <canvas ref={canvasRef} /> {/* Remove explicit width/height */}
+      <div id="control-section">
+        {/* Add your controls here */}
+        Controls placeholder
+      </div>
+    </div>
+  );
 };
 
 export default App;
