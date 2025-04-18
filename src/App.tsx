@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input"; // Needed for color inputs
+import { Trash2 } from 'lucide-react'; // Icon for remove button
 
 // --- Helper Function: Hex to RGB ---
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -380,7 +381,11 @@ const App: React.FC = () => {
             {/* --- Gradient Stop Controls --- */}
             <div className="space-y-4 border-t pt-4 mt-4">
                 <Label className="text-lg font-semibold">Gradient Colors</Label>
-                {colorStops.map((stop, index) => (
+                {[...colorStops].sort((a, b) => a.position - b.position).map((stop, index, sortedStops) => {
+                    const isFirst = index === 0;
+                    const isLast = index === sortedStops.length - 1;
+
+                    return (
                     <div key={stop.id} className="flex items-center space-x-2 p-2 border rounded">
                          {/* Color Picker */}
                          <Input
@@ -388,25 +393,39 @@ const App: React.FC = () => {
                             value={stop.color}
                             onChange={(e) => handleColorStopChange(stop.id, 'color', e.target.value)}
                             className="w-10 h-10 p-0 border-none cursor-pointer rounded"
-                            title={`Stop ${index + 1} Color`}
+                            title={`Stop Color`}
                          />
-                         {/* Position Slider */}
+                         {/* Position Display/Slider */}
                          <div className="flex-grow space-y-1">
                            <Label htmlFor={`pos-${stop.id}`} className="text-xs">Pos: {stop.position.toFixed(2)}</Label>
-                           <Slider
-                               id={`pos-${stop.id}`}
-                               min={0} max={1} step={0.01}
-                               value={[stop.position]}
-                               onValueChange={(val) => handleColorStopChange(stop.id, 'position', val[0])}
-                               disabled={index === 0 || index === colorStops.length -1} // Disable first/last position
-                           />
+                           {/* --- Conditionally render Slider based on INDEX --- */}
+                           {!isFirst && !isLast ? (
+                               <Slider
+                                   id={`pos-${stop.id}`}
+                                   min={0} max={1} step={0.01}
+                                   value={[stop.position]}
+                                   onValueChange={(val) => handleColorStopChange(stop.id, 'position', val[0])}
+                               />
+                           ) : (
+                               // Render placeholder div to maintain layout height like the slider
+                               <div className="h-[20px]" /> 
+                           )}
                          </div>
-                         {/* Remove Button (allow removing if more than 2 stops) */}
-                         {colorStops.length > 2 && (
-                            <Button variant="destructive" size="sm" onClick={() => removeColorStop(stop.id)} title="Remove Stop">X</Button>
+                         {/* --- Conditionally render Remove Button based on INDEX --- */}
+                         {/* Button visible if > 2 stops AND it's not the first or last stop */}
+                         {sortedStops.length > 2 && !isFirst && !isLast && (
+                            <Button variant="destructive" size="icon" onClick={() => removeColorStop(stop.id)} title="Remove Stop" className="w-8 h-8">
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                         )}
+                         {/* Add spacer div if button is not rendered to maintain layout */}
+                         {/* Spacer visible if <= 2 stops OR it IS the first or last stop */}
+                         {(sortedStops.length <= 2 || isFirst || isLast) && (
+                            <div className="w-8 h-8" /> // Spacer to align items when no button
                          )}
                     </div>
-                ))}
+                    );
+                })}
                 {/* Add Stop Button */}
                 <Button onClick={addColorStop} variant="outline" size="sm" className="w-full">Add Color Stop</Button>
             </div>
