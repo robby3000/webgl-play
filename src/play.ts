@@ -11,8 +11,7 @@ const createFragmentShader: CreateFragmentShader = () => {
     uniform float u_speed;        // Animation speed multiplier
     uniform vec2 u_waveFreq;      // Frequency of waves (x, y components)
     uniform vec2 u_waveAmp;       // Amplitude of waves (x, y components for two waves)
-    uniform vec3 u_color1;        // First color for blending
-    uniform vec3 u_color2;        // Second color for blending
+    uniform sampler2D u_gradient; // Use a 1D texture for the gradient
 
     const float PI = 3.14159;
 
@@ -137,7 +136,7 @@ const createFragmentShader: CreateFragmentShader = () => {
 
     vec3 calc_color(float lightness) {
       lightness = clamp(lightness, 0.0, 1.0);
-      return mix(u_color1, u_color2, lightness);
+      return texture2D(u_gradient, vec2(lightness, 0.5)).rgb;
     }
 
     void main() {

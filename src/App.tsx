@@ -1,67 +1,159 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react"; // Added useCallback
 import createFragmentShader from "./play";
-import './App.css'; // Ensure CSS is imported
+import './App.css';
 
-// Import shadcn components
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input"; // Needed for color inputs
+
+// --- Helper Function: Hex to RGB ---
+const hexToRgb = (hex: string): [number, number, number] => {
+    let r = 0, g = 0, b = 0;
+    hex = hex.replace('#', ''); // Remove '#' if present
+    if (hex.length === 3) { // Handle shorthand hex (#RGB)
+        r = parseInt(hex[0] + hex[0], 16);
+        g = parseInt(hex[1] + hex[1], 16);
+        b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) { // Handle standard hex (#RRGGBB)
+        r = parseInt(hex.substring(0, 2), 16);
+        g = parseInt(hex.substring(2, 4), 16);
+        b = parseInt(hex.substring(4, 6), 16);
+    }
+    return [r / 255, g / 255, b / 255]; // Return normalized values (0-1)
+};
+
+// --- Helper Function: Linear Interpolation for Color ---
+const lerpColor = (color1: [number, number, number], color2: [number, number, number], t: number): [number, number, number] => {
+    return [
+        color1[0] * (1 - t) + color2[0] * t,
+        color1[1] * (1 - t) + color2[1] * t,
+        color1[2] * (1 - t) + color2[2] * t
+    ];
+};
+
+
+// --- Interface for Color Stops ---
+interface ColorStop {
+  id: number; // For React key prop
+  position: number; // 0.0 to 1.0
+  color: string; // Hex color string (e.g., "#ff0000")
+}
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const glRef = useRef<WebGLRenderingContext | null>(null); // Ref to store GL context
+  const programRef = useRef<WebGLProgram | null>(null); // Ref to store program
+  const gradientTextureRef = useRef<WebGLTexture | null>(null); // Ref for texture
+  const animationFrameId = useRef<number | null>(null); // Ref for animation frame
 
   // --- State for Controls ---
-  const [speed, setSpeed] = useState<number>(1.0);
+  const [speed, setSpeed] = useState<number>(0.4);
   const [waveFreqX, setWaveFreqX] = useState<number>(5.0);
   const [waveFreqY, setWaveFreqY] = useState<number>(3.0);
-  const [waveAmpX, setWaveAmpX] = useState<number>(0.1);
+  const [waveAmpX, setWaveAmpX] = useState<number>(0.05);
   const [waveAmpY, setWaveAmpY] = useState<number>(0.05);
-  const [color1, setColor1] = useState<string>("#ff0000"); // Red
-  const [color2, setColor2] = useState<string>("#0000ff"); // Blue
 
-  // Refs to store uniform locations
+  // --- Refs for Animation Loop State Access ---
+  const speedRef = useRef(speed);
+  const waveFreqXRef = useRef(waveFreqX);
+  const waveFreqYRef = useRef(waveFreqY);
+  const waveAmpXRef = useRef(waveAmpX);
+  const waveAmpYRef = useRef(waveAmpY);
+
+  // --- State for Gradient Color Stops ---
+  const [colorStops, setColorStops] = useState<ColorStop[]>([
+    { id: 1, position: 0.0, color: "#ff0000" }, // Red
+    { id: 2, position: 0.5, color: "#ffff00" }, // Yellow
+    { id: 3, position: 1.0, color: "#0000ff" }, // Blue
+  ]);
+
+  // Refs to store uniform locations (using useRef to avoid recreating)
   const uniformLocations = useRef<Record<string, WebGLUniformLocation | null>>({});
 
+  // --- Gradient Texture Generation Function ---
+  const generateGradientTextureData = useCallback((stops: ColorStop[], width: number = 256): Uint8Array => {
+    const data = new Uint8Array(width * 4); // width pixels, 4 components (RGBA)
+    const sortedStops = [...stops].sort((a, b) => a.position - b.position); // Ensure stops are sorted
+
+    // Add implicit start/end stops if missing
+    if (sortedStops.length === 0 || sortedStops[0].position !== 0) {
+        sortedStops.unshift({ id: Date.now(), position: 0.0, color: sortedStops[0]?.color || '#000000' });
+    }
+     if (sortedStops[sortedStops.length - 1].position !== 1.0) {
+        sortedStops.push({ id: Date.now() + 1, position: 1.0, color: sortedStops[sortedStops.length - 1]?.color || '#ffffff' });
+    }
+
+
+    let currentStopIndex = 0;
+    for (let i = 0; i < width; i++) {
+      const t = i / (width - 1); // Normalized position (0 to 1)
+
+      // Find the two stops to interpolate between
+      while (currentStopIndex < sortedStops.length - 2 && t > sortedStops[currentStopIndex + 1].position) {
+        currentStopIndex++;
+      }
+
+      const stop1 = sortedStops[currentStopIndex];
+      const stop2 = sortedStops[currentStopIndex + 1];
+
+      // Calculate interpolation factor between the two relevant stops
+      const segmentT = (t - stop1.position) / (stop2.position - stop1.position + 1e-6); // Add epsilon for safety
+      const clampedSegmentT = Math.max(0.0, Math.min(1.0, segmentT));
+
+      const color1Rgb = hexToRgb(stop1.color);
+      const color2Rgb = hexToRgb(stop2.color);
+      const interpolatedColor = lerpColor(color1Rgb, color2Rgb, clampedSegmentT);
+
+      data[i * 4 + 0] = Math.round(interpolatedColor[0] * 255); // R
+      data[i * 4 + 1] = Math.round(interpolatedColor[1] * 255); // G
+      data[i * 4 + 2] = Math.round(interpolatedColor[2] * 255); // B
+      data[i * 4 + 3] = 255; // A (fully opaque)
+    }
+    return data;
+  }, []); // No dependencies needed as logic is self-contained
+
+  // --- Effect to keep Refs updated with latest state ---
+  useEffect(() => {
+    speedRef.current = speed;
+    waveFreqXRef.current = waveFreqX;
+    waveFreqYRef.current = waveFreqY;
+    waveAmpXRef.current = waveAmpX;
+    waveAmpYRef.current = waveAmpY;
+  }, [speed, waveFreqX, waveFreqY, waveAmpX, waveAmpY]);
+
+
+  // --- WebGL Initialization Effect (runs once) ---
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const gl = canvas.getContext("webgl");
     if (!gl) {
-      alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+      alert("Unable to initialize WebGL.");
       return;
     }
+    glRef.current = gl; // Store context
 
-    // --- Pass no arguments now ---
-    const shader = createFragmentShader();
+    const shaderSource = createFragmentShader(); // Get shader source
 
-    const vertexShaderSource = `
-      attribute vec4 a_position;
-      void main() {
-        gl_Position = a_position;
-      }
-    `;
+    const vertexShaderSource = `attribute vec4 a_position; void main() { gl_Position = a_position; }`;
+    const fragmentShaderSource = shaderSource;
 
-    const fragmentShaderSource = shader;
-
-    // --- Shader Compilation & Linking (remains mostly the same) ---
+    // --- Shader Compilation & Linking ---
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
     if (!vertexShader || !fragmentShader) return;
     gl.shaderSource(vertexShader, vertexShaderSource);
-    gl.shaderSource(fragmentShader, fragmentShaderSource);
     gl.compileShader(vertexShader);
     if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      console.error("Vertex Shader Error:", gl.getShaderInfoLog(vertexShader));
-      return;
+      console.error("Vertex Shader Error:", gl.getShaderInfoLog(vertexShader)); return;
     }
+    gl.shaderSource(fragmentShader, fragmentShaderSource);
     gl.compileShader(fragmentShader);
      if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      // Log the shader source for debugging
-      console.error("Fragment Shader Error:", gl.getShaderInfoLog(fragmentShader));
-      console.log("Fragment Shader Source:\n", fragmentShaderSource);
-      return;
+      console.error("Fragment Shader Error:", gl.getShaderInfoLog(fragmentShader)); console.log("Shader Source:", fragmentShaderSource); return;
     }
 
     const program = gl.createProgram();
@@ -70,112 +162,164 @@ const App: React.FC = () => {
     gl.attachShader(program, fragmentShader);
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error("Linker Error:", gl.getProgramInfoLog(program));
-      return;
+      console.error("Linker Error:", gl.getProgramInfoLog(program)); return;
     }
-    gl.useProgram(program);
+    programRef.current = program; // Store program
+    gl.useProgram(program); // Use the program early
 
-    // --- Vertex Buffer Setup (remains the same) ---
+    // --- Vertex Buffer Setup ---
     const positionAttribute = gl.getAttribLocation(program, "a_position");
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    const positions = new Float32Array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0]);
-    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(positionAttribute);
     gl.vertexAttribPointer(positionAttribute, 2, gl.FLOAT, false, 0, 0);
 
-    // --- Get Uniform Locations --- 
+    // --- Get Uniform Locations ---
     uniformLocations.current = {
         u_time: gl.getUniformLocation(program, "u_time"),
-        u_resolution: gl.getUniformLocation(program, "u_resolution"), // Combine width/height
+        u_resolution: gl.getUniformLocation(program, "u_resolution"),
         u_speed: gl.getUniformLocation(program, "u_speed"),
-        u_waveFreq: gl.getUniformLocation(program, "u_waveFreq"), // vec2
-        u_waveAmp: gl.getUniformLocation(program, "u_waveAmp"),   // vec2
-        u_color1: gl.getUniformLocation(program, "u_color1"),   // vec3
-        u_color2: gl.getUniformLocation(program, "u_color2"),   // vec3
-        // Remove gradient texture uniform for now
-        // u_gradient: gl.getUniformLocation(program, "u_gradient"),
+        u_waveFreq: gl.getUniformLocation(program, "u_waveFreq"),
+        u_waveAmp: gl.getUniformLocation(program, "u_waveAmp"),
+        u_gradient: gl.getUniformLocation(program, "u_gradient"), // Get gradient texture location
     };
 
-    // --- Remove old gradient texture setup ---
-    /*
-    const gradientTexture = gl.createTexture();
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, gradientTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255])); // Example: red gradient
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    // --- Create Initial Gradient Texture ---
+    gradientTextureRef.current = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0); // Use texture unit 0
+    gl.bindTexture(gl.TEXTURE_2D, gradientTextureRef.current);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.uniform1i(uniformLocations.current.u_gradient, 0); // Use texture unit 0
-    */
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); // Linear filtering is good for gradients
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-    // Helper to convert hex color string to [r, g, b] array (0.0 - 1.0)
-    const hexToRgb = (hex: string): [number, number, number] => {
-        let r = 0, g = 0, b = 0;
-        if (hex.length == 4) {
-            r = parseInt(hex[1] + hex[1], 16);
-            g = parseInt(hex[2] + hex[2], 16);
-            b = parseInt(hex[3] + hex[3], 16);
-        } else if (hex.length == 7) {
-            r = parseInt(hex[1] + hex[2], 16);
-            g = parseInt(hex[3] + hex[4], 16);
-            b = parseInt(hex[5] + hex[6], 16);
+    // Initial texture data upload (will be updated by the other effect)
+    const initialGradientData = generateGradientTextureData(colorStops);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, initialGradientData.length / 4, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, initialGradientData);
+    gl.uniform1i(uniformLocations.current.u_gradient, 0); // Tell shader to use texture unit 0
+
+
+    // --- Resize Observer ---
+    const resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if(glRef.current) {
+            canvas.width = width;
+            canvas.height = height;
+            glRef.current.viewport(0, 0, width, height);
         }
-        return [r / 255, g / 255, b / 255];
-    };
+      }
+    });
+    resizeObserver.observe(canvas);
 
-    const startTime = Date.now(); // Fix: Use const
+    // --- Start Render Loop ---
+    let startTime = Date.now();
     const render = () => {
-      const currentTime = (Date.now() - startTime) * 0.001;
-      const { u_time, u_resolution, u_speed, u_waveFreq, u_waveAmp, u_color1, u_color2 } = uniformLocations.current;
+      const gl = glRef.current;
+      const program = programRef.current;
+      const canvas = canvasRef.current;
+      if (!gl || !program || !canvas) return; // Ensure everything is valid
 
-      // Update Uniforms
-      gl.uniform1f(u_time, currentTime);
-      gl.uniform2f(u_resolution, canvas.width, canvas.height); // Use actual canvas dimensions
-      gl.uniform1f(u_speed, speed);
-      gl.uniform2f(u_waveFreq, waveFreqX, waveFreqY);
-      gl.uniform2f(u_waveAmp, waveAmpX, waveAmpY);
-      gl.uniform3fv(u_color1, hexToRgb(color1));
-      gl.uniform3fv(u_color2, hexToRgb(color2));
+      const { u_time, u_resolution, u_speed, u_waveFreq, u_waveAmp } = uniformLocations.current;
+
+      // Update Time-based Uniforms
+      const currentTime = (Date.now() - startTime) * 0.001;
+      gl.useProgram(program); // Ensure program is active
+      if(u_time) gl.uniform1f(u_time, currentTime);
+      if(u_resolution) gl.uniform2f(u_resolution, canvas.width, canvas.height);
+      // --- Read from Refs for state values used in render loop ---
+      if(u_speed) gl.uniform1f(u_speed, speedRef.current); 
+      if(u_waveFreq) gl.uniform2f(u_waveFreq, waveFreqXRef.current, waveFreqYRef.current); 
+      if(u_waveAmp) gl.uniform2f(u_waveAmp, waveAmpXRef.current, waveAmpYRef.current); 
+
+      // Texture is assumed to be bound to TEXTURE0 from initialization/updates
 
       gl.clearColor(0.0, 0.0, 0.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      requestAnimationFrame(render);
+
+      animationFrameId.current = requestAnimationFrame(render); // Store ID
     };
 
-    // Resize observer setup (no changes needed here)
-    const resizeObserver = new ResizeObserver(entries => {
-        for (const entry of entries) { // Fix: Use const
-            const { width, height } = entry.contentRect;
-            canvas.width = width;
-            canvas.height = height;
-            gl.viewport(0, 0, width, height); // Update WebGL viewport
-        }
-    });
-    resizeObserver.observe(canvas);
+    render(); // Start the loop
 
-    render();
-
-    // Cleanup function
+    // --- Cleanup Function ---
     return () => {
-        resizeObserver.unobserve(canvas);
-        gl.deleteProgram(program);
-        gl.deleteShader(vertexShader);
-        gl.deleteShader(fragmentShader);
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current); // Stop render loop
+      }
+      resizeObserver.unobserve(canvas);
+      const gl = glRef.current;
+      if(gl) {
+        gl.deleteProgram(programRef.current);
+        // Shaders are implicitly deleted with the program
         gl.deleteBuffer(positionBuffer);
-        // gl.deleteTexture(gradientTexture); // No longer needed
+        gl.deleteTexture(gradientTextureRef.current);
+      }
+      glRef.current = null;
+      programRef.current = null;
+      gradientTextureRef.current = null;
+      uniformLocations.current = {};
     };
-  }, [speed, waveFreqX, waveFreqY, waveAmpX, waveAmpY, color1, color2]); // Re-run effect if controls change (for shader recompilation if needed - maybe not necessary here)
+    // Run this effect only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generateGradientTextureData]); // This effect should ideally only run once. `colorStops` was removed as initial texture is now handled by the other effect.
 
-  // --- Control Handlers ---
+
+  // --- Effect to Update Gradient Texture When Stops Change --- (Separate effect)
+  useEffect(() => {
+    const gl = glRef.current;
+    const texture = gradientTextureRef.current;
+    if (!gl || !texture) return; // Ensure GL context and texture exist
+
+    const gradientData = generateGradientTextureData(colorStops);
+    const textureWidth = gradientData.length / 4;
+
+    gl.activeTexture(gl.TEXTURE0); // Ensure texture unit 0 is active
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Use texSubImage2D for potentially faster updates if width hasn't changed
+    // But texImage2D is safer if width *could* change (though unlikely for our 1D case)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, textureWidth, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, gradientData);
+
+    // No need to re-bind or set uniform1i, it's already set to unit 0
+
+  }, [colorStops, generateGradientTextureData]); // Re-run only when colorStops change
+
+  // --- Control Handlers (Keep existing ones) ---
   const handleSpeedChange = (value: number[]) => setSpeed(value[0]);
   const handleWaveFreqXChange = (value: number[]) => setWaveFreqX(value[0]);
   const handleWaveFreqYChange = (value: number[]) => setWaveFreqY(value[0]);
   const handleWaveAmpXChange = (value: number[]) => setWaveAmpX(value[0]);
   const handleWaveAmpYChange = (value: number[]) => setWaveAmpY(value[0]);
-  const handleColor1Change = (event: React.ChangeEvent<HTMLInputElement>) => setColor1(event.target.value);
-  const handleColor2Change = (event: React.ChangeEvent<HTMLInputElement>) => setColor2(event.target.value);
+
+  // --- Handlers for Color Stops ---
+  const handleColorStopChange = (id: number, field: 'position' | 'color', value: string | number) => {
+      setColorStops(prevStops =>
+          prevStops.map(stop =>
+              stop.id === id ? { ...stop, [field]: value } : stop
+          )
+      );
+  };
+
+  const addColorStop = () => {
+      setColorStops(prevStops => {
+          // Find a position between the last two stops or add at the end
+          const lastPos = prevStops.length > 0 ? prevStops[prevStops.length - 1].position : 0;
+          const secondLastPos = prevStops.length > 1 ? prevStops[prevStops.length - 2].position : 0;
+          const newPos = Math.min(1.0, (lastPos + secondLastPos) / 2 + 0.1); // Simple heuristic
+          return [
+              ...prevStops,
+              { id: Date.now(), position: newPos, color: "#ffffff" } // Add white stop
+          ].sort((a,b) => a.position - b.position); // Keep sorted
+      });
+  };
+
+  const removeColorStop = (id: number) => {
+      setColorStops(prevStops => prevStops.filter(stop => stop.id !== id));
+  };
+
 
   const randomizeParameters = () => {
       setSpeed(Math.random() * 2 + 0.1); // 0.1 to 2.1
@@ -184,19 +328,24 @@ const App: React.FC = () => {
       setWaveAmpX(Math.random() * 0.2 + 0.01); // 0.01 to 0.21
       setWaveAmpY(Math.random() * 0.2 + 0.01); // 0.01 to 0.21
 
-      // Random Hex Colors
-      const randomHex = () => '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-      setColor1(randomHex());
-      setColor2(randomHex());
+      // Randomize Gradient Stops (e.g., 3 random stops)
+      const numStops = 3; // Or randomize this too
+      const randomStops: ColorStop[] = [];
+      for (let i = 0; i < numStops; i++) {
+          randomStops.push({
+              id: Date.now() + i,
+              position: i === 0 ? 0 : (i === numStops - 1 ? 1 : Math.random()), // Ensure start/end
+              color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')
+          });
+      }
+      setColorStops(randomStops.sort((a,b) => a.position - b.position));
   };
 
 
   return (
     <div id="main-container" className="flex h-screen">
-      {/* Add min-w-0 to allow canvas to shrink if needed */}
-      <canvas ref={canvasRef} className="flex-grow h-full min-w-0" /> 
-      {/* Restore original control section */}
-      <div id="control-section" className="w-80 h-full overflow-y-auto p-4 border-l bg-card text-card-foreground"> 
+      <canvas ref={canvasRef} className="flex-grow h-full min-w-0" />
+      <div id="control-section" className="w-96 h-full overflow-y-auto p-4 border-l bg-card text-card-foreground"> {/* Increased width for gradient controls */}
         <Card className="w-full">
           <CardHeader>
             <CardTitle>Controls</CardTitle>
@@ -205,93 +354,67 @@ const App: React.FC = () => {
             {/* Speed Slider */}
             <div className="space-y-2">
               <Label htmlFor="speed">Speed: {speed.toFixed(2)}</Label>
-              <Slider
-                id="speed"
-                min={0.1}
-                max={5}
-                step={0.05}
-                value={[speed]}
-                onValueChange={handleSpeedChange}
-              />
+              <Slider id="speed" min={0.1} max={5} step={0.05} value={[speed]} onValueChange={handleSpeedChange} />
             </div>
 
             {/* Wave Frequency Sliders */}
             <div className="space-y-2">
               <Label htmlFor="waveFreqX">Wave Freq X: {waveFreqX.toFixed(2)}</Label>
-              <Slider
-                id="waveFreqX"
-                min={0.5}
-                max={20}
-                step={0.1}
-                value={[waveFreqX]}
-                onValueChange={handleWaveFreqXChange}
-              />
+              <Slider id="waveFreqX" min={0.5} max={20} step={0.1} value={[waveFreqX]} onValueChange={handleWaveFreqXChange} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="waveFreqY">Wave Freq Y: {waveFreqY.toFixed(2)}</Label>
-              <Slider
-                id="waveFreqY"
-                min={0.5}
-                max={20}
-                step={0.1}
-                value={[waveFreqY]}
-                onValueChange={handleWaveFreqYChange}
-              />
+              <Slider id="waveFreqY" min={0.5} max={20} step={0.1} value={[waveFreqY]} onValueChange={handleWaveFreqYChange} />
             </div>
 
              {/* Wave Amplitude Sliders */}
              <div className="space-y-2">
               <Label htmlFor="waveAmpX">Wave Amp X: {waveAmpX.toFixed(3)}</Label>
-              <Slider
-                id="waveAmpX"
-                min={0}
-                max={0.3}
-                step={0.005}
-                value={[waveAmpX]}
-                onValueChange={handleWaveAmpXChange}
-              />
+              <Slider id="waveAmpX" min={0} max={0.3} step={0.005} value={[waveAmpX]} onValueChange={handleWaveAmpXChange} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="waveAmpY">Wave Amp Y: {waveAmpY.toFixed(3)}</Label>
-              <Slider
-                id="waveAmpY"
-                min={0}
-                max={0.3}
-                step={0.005}
-                value={[waveAmpY]}
-                onValueChange={handleWaveAmpYChange}
-              />
+              <Slider id="waveAmpY" min={0} max={0.3} step={0.005} value={[waveAmpY]} onValueChange={handleWaveAmpYChange} />
             </div>
 
-             {/* Color Pickers */}
-             <div className="flex items-center space-x-4">
-                <div className="flex flex-col items-center space-y-1">
-                    <Label htmlFor="color1">Color 1</Label>
-                    <input
-                        id="color1"
-                        type="color"
-                        value={color1}
-                        onChange={handleColor1Change}
-                        className="w-10 h-10 border-none cursor-pointer p-0 rounded"
-                        style={{ backgroundColor: color1 }} // Show selected color
-                    />
-                </div>
-                <div className="flex flex-col items-center space-y-1">
-                    <Label htmlFor="color2">Color 2</Label>
-                    <input
-                        id="color2"
-                        type="color"
-                        value={color2}
-                        onChange={handleColor2Change}
-                        className="w-10 h-10 border-none cursor-pointer p-0 rounded"
-                        style={{ backgroundColor: color2 }} // Show selected color
-                    />
-                </div>
-             </div>
+            {/* --- Gradient Stop Controls --- */}
+            <div className="space-y-4 border-t pt-4 mt-4">
+                <Label className="text-lg font-semibold">Gradient Colors</Label>
+                {colorStops.map((stop, index) => (
+                    <div key={stop.id} className="flex items-center space-x-2 p-2 border rounded">
+                         {/* Color Picker */}
+                         <Input
+                            type="color"
+                            value={stop.color}
+                            onChange={(e) => handleColorStopChange(stop.id, 'color', e.target.value)}
+                            className="w-10 h-10 p-0 border-none cursor-pointer rounded"
+                            title={`Stop ${index + 1} Color`}
+                         />
+                         {/* Position Slider */}
+                         <div className="flex-grow space-y-1">
+                           <Label htmlFor={`pos-${stop.id}`} className="text-xs">Pos: {stop.position.toFixed(2)}</Label>
+                           <Slider
+                               id={`pos-${stop.id}`}
+                               min={0} max={1} step={0.01}
+                               value={[stop.position]}
+                               onValueChange={(val) => handleColorStopChange(stop.id, 'position', val[0])}
+                               disabled={index === 0 || index === colorStops.length -1} // Disable first/last position
+                           />
+                         </div>
+                         {/* Remove Button (allow removing if more than 2 stops) */}
+                         {colorStops.length > 2 && (
+                            <Button variant="destructive" size="sm" onClick={() => removeColorStop(stop.id)} title="Remove Stop">X</Button>
+                         )}
+                    </div>
+                ))}
+                {/* Add Stop Button */}
+                <Button onClick={addColorStop} variant="outline" size="sm" className="w-full">Add Color Stop</Button>
+            </div>
+
 
             {/* Randomize Button */}
-            <Button onClick={randomizeParameters} className="w-full">
-                Randomize
+            <Button onClick={randomizeParameters} className="w-full mt-4">
+                Randomize All
             </Button>
 
           </CardContent>
