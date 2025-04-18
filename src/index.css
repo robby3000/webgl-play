@@ -139,3 +139,9 @@ button:focus-visible {
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom override to remove Sheet overlay dimming effect */
+/* Target the overlay class directly when its data-state is open */
+.fixed.inset-0.z-50.bg-black\/80[data-state='open'] {
+    background-color: transparent !important;
+}

@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input"; // Needed for color inputs
-import { Trash2 } from 'lucide-react'; // Icon for remove button
+import { Trash2, Settings } from 'lucide-react'; // Icon for remove button
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"; // Import Sheet components
 
 // --- Helper Function: Hex to RGB ---
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -344,101 +345,131 @@ const App: React.FC = () => {
 
 
   return (
-    <div id="main-container" className="flex h-screen">
-      <canvas ref={canvasRef} className="flex-grow h-full min-w-0" />
-      <div id="control-section" className="w-96 h-full overflow-y-auto p-4 border-l bg-card text-card-foreground"> {/* Increased width for gradient controls */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle>Controls</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Speed Slider */}
-            <div className="space-y-2">
-              <Label htmlFor="speed">Speed: {speed.toFixed(2)}</Label>
-              <Slider id="speed" min={0.1} max={5} step={0.05} value={[speed]} onValueChange={handleSpeedChange} />
-            </div>
+    <div className="relative w-screen h-screen overflow-hidden"> {/* Make container relative for absolute positioning of trigger */}
 
-            {/* Wave Frequency Sliders */}
-            <div className="space-y-2">
-              <Label htmlFor="waveFreqX">Wave Freq X: {waveFreqX.toFixed(2)}</Label>
-              <Slider id="waveFreqX" min={0.5} max={20} step={0.1} value={[waveFreqX]} onValueChange={handleWaveFreqXChange} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="waveFreqY">Wave Freq Y: {waveFreqY.toFixed(2)}</Label>
-              <Slider id="waveFreqY" min={0.5} max={20} step={0.1} value={[waveFreqY]} onValueChange={handleWaveFreqYChange} />
-            </div>
-
-             {/* Wave Amplitude Sliders */}
-             <div className="space-y-2">
-              <Label htmlFor="waveAmpX">Wave Amp X: {waveAmpX.toFixed(3)}</Label>
-              <Slider id="waveAmpX" min={0} max={0.3} step={0.005} value={[waveAmpX]} onValueChange={handleWaveAmpXChange} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="waveAmpY">Wave Amp Y: {waveAmpY.toFixed(3)}</Label>
-              <Slider id="waveAmpY" min={0} max={0.3} step={0.005} value={[waveAmpY]} onValueChange={handleWaveAmpYChange} />
-            </div>
-
-            {/* --- Gradient Stop Controls --- */}
-            <div className="space-y-4 border-t pt-4 mt-4">
-                <Label className="text-lg font-semibold">Gradient Colors</Label>
-                {[...colorStops].sort((a, b) => a.position - b.position).map((stop, index, sortedStops) => {
-                    const isFirst = index === 0;
-                    const isLast = index === sortedStops.length - 1;
-
-                    return (
-                    <div key={stop.id} className="flex items-center space-x-2 p-2 border rounded">
-                         {/* Color Picker */}
-                         <Input
-                            type="color"
-                            value={stop.color}
-                            onChange={(e) => handleColorStopChange(stop.id, 'color', e.target.value)}
-                            className="w-10 h-10 p-0 border-none cursor-pointer rounded"
-                            title={`Stop Color`}
-                         />
-                         {/* Position Display/Slider */}
-                         <div className="flex-grow space-y-1">
-                           <Label htmlFor={`pos-${stop.id}`} className="text-xs">Pos: {stop.position.toFixed(2)}</Label>
-                           {/* --- Conditionally render Slider based on INDEX --- */}
-                           {!isFirst && !isLast ? (
-                               <Slider
-                                   id={`pos-${stop.id}`}
-                                   min={0} max={1} step={0.01}
-                                   value={[stop.position]}
-                                   onValueChange={(val) => handleColorStopChange(stop.id, 'position', val[0])}
-                               />
-                           ) : (
-                               // Render placeholder div to maintain layout height like the slider
-                               <div className="h-[20px]" /> 
-                           )}
-                         </div>
-                         {/* --- Conditionally render Remove Button based on INDEX --- */}
-                         {/* Button visible if > 2 stops AND it's not the first or last stop */}
-                         {sortedStops.length > 2 && !isFirst && !isLast && (
-                            <Button variant="destructive" size="icon" onClick={() => removeColorStop(stop.id)} title="Remove Stop" className="w-8 h-8">
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
-                         )}
-                         {/* Add spacer div if button is not rendered to maintain layout */}
-                         {/* Spacer visible if <= 2 stops OR it IS the first or last stop */}
-                         {(sortedStops.length <= 2 || isFirst || isLast) && (
-                            <div className="w-8 h-8" /> // Spacer to align items when no button
-                         )}
-                    </div>
-                    );
-                })}
-                {/* Add Stop Button */}
-                <Button onClick={addColorStop} variant="outline" size="sm" className="w-full">Add Color Stop</Button>
-            </div>
-
-
-            {/* Randomize Button */}
-            <Button onClick={randomizeParameters} className="w-full mt-4">
-                Randomize All
-            </Button>
-
-          </CardContent>
-        </Card>
+      {/* Canvas Container - Takes full space */}
+      <div className="absolute inset-0 min-w-0"> {/* Use absolute positioning for canvas container */}
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full block" // Ensure canvas fills the container
+          // Set initial canvas size (can be adjusted dynamically if needed)
+          width={window.innerWidth}
+          height={window.innerHeight}
+        ></canvas>
       </div>
+
+      {/* --- Sheet for Controls --- */}
+      <Sheet>
+        {/* Trigger Button - Positioned top-right */}
+        <SheetTrigger asChild>
+           <Button variant="outline" size="icon" className="absolute top-4 right-4 z-10">
+             <Settings className="h-5 w-5" />
+           </Button>
+        </SheetTrigger>
+
+        {/* Sheet Content (Drawer) */}
+        <SheetContent side="right" className="w-[350px] sm:w-[400px] bg-background/30 backdrop-blur-sm overflow-y-auto"> {/* Apply translucency, blur, and scrolling */}
+          <SheetHeader>
+            <SheetTitle>Controls</SheetTitle>
+            {/* Optional: Add SheetDescription here if needed */}
+          </SheetHeader>
+
+          {/* Move the existing Card inside the Sheet Content */}
+          <Card className="border-none shadow-none bg-transparent"> {/* Remove card background/border if desired */}
+              {/* CardHeader remains for structure */}
+              <CardHeader>
+                <CardTitle>Controls</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Speed Slider */}
+                <div className="space-y-2">
+                  <Label htmlFor="speed">Speed: {speed.toFixed(2)}</Label>
+                  <Slider id="speed" min={0.1} max={5} step={0.05} value={[speed]} onValueChange={handleSpeedChange} />
+                </div>
+
+                {/* Wave Frequency Sliders */}
+                <div className="space-y-2">
+                  <Label htmlFor="waveFreqX">Wave Freq X: {waveFreqX.toFixed(2)}</Label>
+                  <Slider id="waveFreqX" min={0.5} max={20} step={0.1} value={[waveFreqX]} onValueChange={handleWaveFreqXChange} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="waveFreqY">Wave Freq Y: {waveFreqY.toFixed(2)}</Label>
+                  <Slider id="waveFreqY" min={0.5} max={20} step={0.1} value={[waveFreqY]} onValueChange={handleWaveFreqYChange} />
+                </div>
+
+                 {/* Wave Amplitude Sliders */}
+                 <div className="space-y-2">
+                  <Label htmlFor="waveAmpX">Wave Amp X: {waveAmpX.toFixed(3)}</Label>
+                  <Slider id="waveAmpX" min={0} max={0.3} step={0.005} value={[waveAmpX]} onValueChange={handleWaveAmpXChange} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="waveAmpY">Wave Amp Y: {waveAmpY.toFixed(3)}</Label>
+                  <Slider id="waveAmpY" min={0} max={0.3} step={0.005} value={[waveAmpY]} onValueChange={handleWaveAmpYChange} />
+                </div>
+
+                {/* --- Gradient Stop Controls --- */}
+                <div className="space-y-4 border-t pt-4 mt-4">
+                    <Label className="text-lg font-semibold">Gradient Colors</Label>
+                    {[...colorStops].sort((a, b) => a.position - b.position).map((stop, index, sortedStops) => {
+                        const isFirst = index === 0;
+                        const isLast = index === sortedStops.length - 1;
+
+                        return (
+                        <div key={stop.id} className="flex items-center space-x-2 p-2 border rounded">
+                             {/* Color Picker */}
+                             <Input
+                                type="color"
+                                value={stop.color}
+                                onChange={(e) => handleColorStopChange(stop.id, 'color', e.target.value)}
+                                className="w-10 h-10 p-0 border-none cursor-pointer rounded"
+                                title={`Stop Color`}
+                             />
+                             {/* Position Display/Slider */}
+                             <div className="flex-grow space-y-1">
+                               <Label htmlFor={`pos-${stop.id}`} className="text-xs">Pos: {stop.position.toFixed(2)}</Label>
+                               {/* --- Conditionally render Slider based on INDEX --- */}
+                               {!isFirst && !isLast ? (
+                                   <Slider
+                                       id={`pos-${stop.id}`}
+                                       min={0} max={1} step={0.01}
+                                       value={[stop.position]}
+                                       onValueChange={(val) => handleColorStopChange(stop.id, 'position', val[0])}
+                                   />
+                               ) : (
+                                   // Render placeholder div to maintain layout height like the slider
+                                   <div className="h-[20px]" /> 
+                               )}
+                             </div>
+                             {/* --- Conditionally render Remove Button based on INDEX --- */}
+                             {/* Button visible if > 2 stops AND it's not the first or last stop */}
+                             {sortedStops.length > 2 && !isFirst && !isLast && (
+                                <Button variant="destructive" size="icon" onClick={() => removeColorStop(stop.id)} title="Remove Stop" className="w-8 h-8">
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                             )}
+                             {/* Add spacer div if button is not rendered to maintain layout */}
+                             {/* Spacer visible if <= 2 stops OR it IS the first or last stop */}
+                             {(sortedStops.length <= 2 || isFirst || isLast) && (
+                                <div className="w-8 h-8" /> // Spacer to align items when no button
+                             )}
+                        </div>
+                        );
+                    })}
+                    {/* Add Stop Button */}
+                    <Button onClick={addColorStop} variant="outline" size="sm" className="w-full">Add Color Stop</Button>
+                </div>
+
+
+                {/* Randomize Button */}
+                <Button onClick={randomizeParameters} className="w-full mt-4">
+                    Randomize All
+                </Button>
+
+              </CardContent>
+            </Card> {/* End of moved Card */}
+        </SheetContent>
+      </Sheet>
+
     </div>
   );
 };
