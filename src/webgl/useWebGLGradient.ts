@@ -213,12 +213,15 @@ export function useWebGLGradient({
 
     // ResizeObserver to handle canvas resizing
     const resizeObserver = new ResizeObserver(entries => {
+      const dpr = window.devicePixelRatio || 1;
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (glRef.current) {
-          canvas.width = width;
-          canvas.height = height;
-          glRef.current.viewport(0, 0, width, height);
+          const w = Math.floor(width * dpr);
+          const h = Math.floor(height * dpr);
+          canvas.width = w;
+          canvas.height = h;
+          glRef.current.viewport(0, 0, w, h);
         }
       }
     });
