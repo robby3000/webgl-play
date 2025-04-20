@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 phase-2-notes.md
 archive/package-lock.json
+.firebase/
+
