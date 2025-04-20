@@ -24,6 +24,7 @@ const App: React.FC = () => {
   } = useGradientState();
 
   // Use the WebGL gradient hook for rendering
+  // Pass the ref returned by the hook directly
   const canvasRef = useWebGLGradient({
     ...parameterRefs,
     colorStops
@@ -31,7 +32,7 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden">
-      {/* Canvas Container */}
+      {/* Canvas Container - Pass the ref directly */}
       <CanvasContainer canvasRef={canvasRef} />
 
       {/* Controls Sheet */}

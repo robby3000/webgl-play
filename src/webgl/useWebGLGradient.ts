@@ -52,7 +52,7 @@ export function useWebGLGradient({
   blurNoiseSpeedRef,
   blurPulsingSpeedRef,
   colorStops,
-}: UseWebGLGradientProps): RefObject<HTMLCanvasElement> {
+}: UseWebGLGradientProps): RefObject<HTMLCanvasElement | null> { // <-- Fixed return type here
   // Create canvas ref
   const canvasRef = useRef<HTMLCanvasElement>(null);
   

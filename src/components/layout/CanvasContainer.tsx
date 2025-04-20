@@ -1,7 +1,8 @@
 import React, { RefObject } from "react";
 
 interface CanvasContainerProps {
-  canvasRef: RefObject<HTMLCanvasElement>;
+  // Allow the ref to potentially be null initially
+  canvasRef: RefObject<HTMLCanvasElement | null>; 
 }
 
 /**
@@ -11,10 +12,12 @@ export const CanvasContainer: React.FC<CanvasContainerProps> = ({ canvasRef }) =
   return (
     <div className="absolute inset-0 min-w-0">
       <canvas
-        ref={canvasRef}
+        // The ref can be null initially, React handles this
+        ref={canvasRef} 
         className="w-full h-full block"
+        // Set initial size; ResizeObserver in the hook will adjust later
         width={window.innerWidth}
-        height={window.innerHeight}
+        height={window.innerHeight} 
       />
     </div>
   );
