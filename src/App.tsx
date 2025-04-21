@@ -7,14 +7,14 @@ import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 
 // Import custom hooks
 import { useGradientState } from "./state/useGradientState";
-import { useWebGLGradient } from "./webgl/useWebGLGradient";
+import { useLayeredTextureGradient } from "./webgl/useLayeredTextureGradient";
 
 // Import layout components
 import CanvasContainer from "./components/layout/CanvasContainer";
 import ControlsSheet from "./components/layout/ControlsSheet";
 
 const App: React.FC = () => {
-  // Use the gradient state hook to manage all parameters
+  // Use the gradient state hook to manage parameters
   const {
     parameters,
     colorStops,
@@ -23,11 +23,12 @@ const App: React.FC = () => {
     resetHandlers
   } = useGradientState();
 
-  // Use the WebGL gradient hook for rendering
-  // Pass the ref returned by the hook directly
-  const canvasRef = useWebGLGradient({
-    ...parameterRefs,
-    colorStops
+  // Use our new efficient layered texture renderer
+  const canvasRef = useLayeredTextureGradient({
+    speedRef: parameterRefs.speedRef,
+    // Optional parameters for enhancements
+    colorSchemeRef: React.useRef<number>(0), // Initial color scheme - can be hooked up to UI later
+    enableAdaptiveQualityRef: React.useRef<boolean>(true) // Enable adaptive quality for better performance
   });
 
   return (
