@@ -24,8 +24,8 @@ const App: React.FC = () => {
   } = useGradientState();
 
   // Use the WebGL gradient hook for rendering
-  // Pass the ref returned by the hook directly
-  const canvasRef = useWebGLGradient({
+  // The hook now returns a tuple with canvas ref and randomize function
+  const [canvasRef, randomize] = useWebGLGradient({
     ...parameterRefs,
     colorStops
   });
@@ -50,6 +50,7 @@ const App: React.FC = () => {
           colorStops={colorStops}
           handlers={handlers}
           resetHandlers={resetHandlers}
+          randomize={randomize}
         />
       </Sheet>
     </div>

@@ -44,27 +44,23 @@ export interface ColorStop {
 }
 
 /**
- * WebGL uniform locations
+ * WebGL uniform locations for optimized renderer
  */
 export interface UniformLocations {
+  // Basic uniforms (updated every frame)
   u_time: WebGLUniformLocation | null;
   u_resolution: WebGLUniformLocation | null;
+  
+  // Animation uniforms (updated when parameters change)
   u_speed: WebGLUniformLocation | null;
   u_waveFreq: WebGLUniformLocation | null;
   u_waveAmp: WebGLUniformLocation | null;
+  
+  // Texture sampler uniforms (set once)
   u_gradient: WebGLUniformLocation | null;
-  
-  // New uniforms for Phase 2
-  u_noiseScale?: WebGLUniformLocation | null;
-  u_noiseVerticalStretch?: WebGLUniformLocation | null;
-  u_noiseSwirlSpeed?: WebGLUniformLocation | null;
-  u_noiseFlowSpeed?: WebGLUniformLocation | null;
-  
-  u_blurAmount?: WebGLUniformLocation | null;
-  u_blurSharpnessRange?: WebGLUniformLocation | null;
-  u_blurNoiseScale?: WebGLUniformLocation | null;
-  u_blurNoiseSpeed?: WebGLUniformLocation | null;
-  u_blurPulsingSpeed?: WebGLUniformLocation | null;
+  u_bgTexture: WebGLUniformLocation | null;
+  u_noiseTexture: WebGLUniformLocation | null;
+  u_waveTexture: WebGLUniformLocation | null;
 }
 
 /**
@@ -76,3 +72,11 @@ export type Vec2 = [number, number];
  * Vector3 type for RGB colors
  */
 export type Vec3 = [number, number, number];
+
+/**
+ * Texture layer information
+ */
+export interface TextureLayer {
+  texture: WebGLTexture | null;
+  unit: number;
+}

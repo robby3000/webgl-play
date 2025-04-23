@@ -5,16 +5,7 @@ import {
   SheetHeader, 
   SheetTitle 
 } from "@/components/ui/sheet";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 
-import AnimationPanel from "../panels/AnimationPanel";
-import NoisePanel from "../panels/NoisePanel";
-import BlurPanel from "../panels/BlurPanel";
 import GradientPanel from "../panels/GradientPanel";
 import { ColorStop } from "@/webgl/types";
 
@@ -70,64 +61,38 @@ interface ControlsSheetProps {
     resetAllParameters: () => void;
     randomizeAllParameters: () => void;
   };
+  
+  // WebGL texture randomize function
+  randomize: () => void;
 }
 
 /**
- * Sheet component containing all control panels in accordion layout
+ * Sheet component containing gradient controls
  */
 export const ControlsSheet: React.FC<ControlsSheetProps> = ({
-  parameters,
+  // We keep parameters in the props for interface compatibility, but it's not used
+  // in the simplified UI. It might be used in future updates.
   colorStops,
   handlers,
   resetHandlers,
+  randomize
 }) => {
   const {
-    speed,
-    waveFreqX,
-    waveFreqY,
-    waveAmpX,
-    waveAmpY,
-    noiseScale,
-    noiseVerticalStretch,
-    noiseSwirlSpeed,
-    noiseFlowSpeed,
-    blurAmount,
-    blurSharpnessMin,
-    blurSharpnessMax,
-    blurNoiseScale,
-    blurNoiseSpeed,
-    blurPulsingSpeed,
-  } = parameters;
-  
-  const {
-    handleSpeedChange,
-    handleWaveFreqXChange,
-    handleWaveFreqYChange,
-    handleWaveAmpXChange,
-    handleWaveAmpYChange,
-    handleNoiseScaleChange,
-    handleNoiseVerticalStretchChange,
-    handleNoiseSwirlSpeedChange,
-    handleNoiseFlowSpeedChange,
-    handleBlurAmountChange,
-    handleBlurSharpnessMinChange,
-    handleBlurSharpnessMaxChange,
-    handleBlurNoiseScaleChange,
-    handleBlurNoiseSpeedChange,
-    handleBlurPulsingSpeedChange,
     handleColorStopChange,
     addColorStop,
     removeColorStop,
   } = handlers;
   
   const {
-    resetBaseParameters,
-    resetNoiseParameters,
-    resetBlurParameters,
     resetColorStops,
-    resetAllParameters,
     randomizeAllParameters,
   } = resetHandlers;
+  
+  // Combined randomize function that updates both state and textures
+  const handleRandomize = () => {
+    randomizeAllParameters(); // Update state with random values
+    randomize();              // Regenerate WebGL textures
+  };
   
   return (
     <SheetContent side="right" className="w-[350px] sm:w-[400px] bg-background/30 backdrop-blur-sm overflow-y-auto">
@@ -135,95 +100,27 @@ export const ControlsSheet: React.FC<ControlsSheetProps> = ({
         <SheetTitle>Gradient Controls</SheetTitle>
       </SheetHeader>
       
-      {/* Randomize Button at the top */}
+      {/* Randomize Button */}
       <div className="py-4">
         <Button 
-          onClick={randomizeAllParameters} 
+          onClick={handleRandomize} 
           className="w-full mb-2 bg-black/[0.07] hover:bg-black/[0.15] text-foreground/90 transition-colors border-none"
         >
-          Randomize All
-        </Button>
-        <Button 
-          onClick={resetAllParameters} 
-          variant="outline" 
-          className="w-full bg-transparent border-border/30 hover:bg-black/[0.07] text-foreground/80 hover:text-foreground/90"
-        >
-          Reset All
+          Randomize
         </Button>
       </div>
       
-      {/* Control Panels in Accordion Layout */}
-      <Accordion type="multiple" defaultValue={["animation", "noise", "blur", "gradient"]} className="space-y-4">
-        <AccordionItem value="animation" className="border-b-0 border-t-0 border-x-0 rounded-md overflow-hidden">
-          <AccordionTrigger className="hover:no-underline py-2 px-3 text-foreground/90 bg-black/[0.07] hover:bg-black/[0.15] transition-colors">Animation & Waves</AccordionTrigger>
-          <AccordionContent className="px-2 pt-4">
-            <AnimationPanel
-              speed={speed}
-              waveFreqX={waveFreqX}
-              waveFreqY={waveFreqY}
-              waveAmpX={waveAmpX}
-              waveAmpY={waveAmpY}
-              handleSpeedChange={handleSpeedChange}
-              handleWaveFreqXChange={handleWaveFreqXChange}
-              handleWaveFreqYChange={handleWaveFreqYChange}
-              handleWaveAmpXChange={handleWaveAmpXChange}
-              handleWaveAmpYChange={handleWaveAmpYChange}
-              resetBaseParameters={resetBaseParameters}
-            />
-          </AccordionContent>
-        </AccordionItem>
-        
-        <AccordionItem value="noise" className="border-b-0 border-t-0 border-x-0 rounded-md overflow-hidden">
-          <AccordionTrigger className="hover:no-underline py-2 px-3 text-foreground/90 bg-black/[0.07] hover:bg-black/[0.15] transition-colors">Background Noise</AccordionTrigger>
-          <AccordionContent className="px-2 pt-4">
-            <NoisePanel
-              noiseScale={noiseScale}
-              noiseVerticalStretch={noiseVerticalStretch}
-              noiseSwirlSpeed={noiseSwirlSpeed}
-              noiseFlowSpeed={noiseFlowSpeed}
-              handleNoiseScaleChange={handleNoiseScaleChange}
-              handleNoiseVerticalStretchChange={handleNoiseVerticalStretchChange}
-              handleNoiseSwirlSpeedChange={handleNoiseSwirlSpeedChange}
-              handleNoiseFlowSpeedChange={handleNoiseFlowSpeedChange}
-              resetNoiseParameters={resetNoiseParameters}
-            />
-          </AccordionContent>
-        </AccordionItem>
-        
-        <AccordionItem value="blur" className="border-b-0 border-t-0 border-x-0 rounded-md overflow-hidden">
-          <AccordionTrigger className="hover:no-underline py-2 px-3 text-foreground/90 bg-black/[0.07] hover:bg-black/[0.15] transition-colors">Blur Effects</AccordionTrigger>
-          <AccordionContent className="px-2 pt-4">
-            <BlurPanel
-              blurAmount={blurAmount}
-              blurSharpnessMin={blurSharpnessMin}
-              blurSharpnessMax={blurSharpnessMax}
-              blurNoiseScale={blurNoiseScale}
-              blurNoiseSpeed={blurNoiseSpeed}
-              blurPulsingSpeed={blurPulsingSpeed}
-              handleBlurAmountChange={handleBlurAmountChange}
-              handleBlurSharpnessMinChange={handleBlurSharpnessMinChange}
-              handleBlurSharpnessMaxChange={handleBlurSharpnessMaxChange}
-              handleBlurNoiseScaleChange={handleBlurNoiseScaleChange}
-              handleBlurNoiseSpeedChange={handleBlurNoiseSpeedChange}
-              handleBlurPulsingSpeedChange={handleBlurPulsingSpeedChange}
-              resetBlurParameters={resetBlurParameters}
-            />
-          </AccordionContent>
-        </AccordionItem>
-        
-        <AccordionItem value="gradient" className="border-b-0 border-t-0 border-x-0 rounded-md overflow-hidden">
-          <AccordionTrigger className="hover:no-underline py-2 px-3 text-foreground/90 bg-black/[0.07] hover:bg-black/[0.15] transition-colors">Gradient Colors</AccordionTrigger>
-          <AccordionContent className="px-2 pt-4">
-            <GradientPanel
-              colorStops={colorStops}
-              handleColorStopChange={handleColorStopChange}
-              addColorStop={addColorStop}
-              removeColorStop={removeColorStop}
-              resetColorStops={resetColorStops}
-            />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+      {/* Gradient Color Controls */}
+      <div className="rounded-md overflow-hidden bg-black/[0.03] p-4">
+        <h3 className="text-foreground/90 font-medium text-sm mb-4">Gradient Colors</h3>
+        <GradientPanel
+          colorStops={colorStops}
+          handleColorStopChange={handleColorStopChange}
+          addColorStop={addColorStop}
+          removeColorStop={removeColorStop}
+          resetColorStops={resetColorStops}
+        />
+      </div>
     </SheetContent>
   );
 };

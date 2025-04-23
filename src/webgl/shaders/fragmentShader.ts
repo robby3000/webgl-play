@@ -1,7 +1,3 @@
-import { noiseUtils } from "../../utils/noiseUtils";
-import { simplex_noise } from "../../utils/simplexNoise";
-import { noiseShaderFunctions } from "./noiseShader";
-import { blurShaderFunctions } from "./blurShader";
 import { CreateFragmentShader } from "../types";
 
 /**
@@ -17,115 +13,93 @@ const createFragmentShader: CreateFragmentShader = () => {
     uniform vec2 u_resolution;    // Canvas size (width, height)
     uniform float u_speed;        // Animation speed multiplier
     uniform vec2 u_waveFreq;      // Frequency of waves (x, y components)
-    uniform vec2 u_waveAmp;       // Amplitude of waves (x, y components for two waves)
-    uniform sampler2D u_gradient; // Use a 1D texture for the gradient
+    uniform vec2 u_waveAmp;       // Amplitude of waves (x, y components)
     
-    // New uniforms for Phase 2
-    uniform float u_noiseScale;           // Overall scale for noise patterns
-    uniform float u_noiseVerticalStretch; // Vertical stretching for noise
-    uniform float u_noiseSwirlSpeed;      // Speed of time evolution for noise
-    uniform float u_noiseFlowSpeed;       // Horizontal drift speed for noise
+    // Texture samplers for layered approach
+    uniform sampler2D u_gradient; // 1D texture for the gradient
+    uniform sampler2D u_bgTexture;    // Background texture
+    uniform sampler2D u_noiseTexture; // Pre-computed noise texture
+    uniform sampler2D u_waveTexture;  // Wave distortion texture
+
+    // Constants
+    const float PI = 3.14159265359;
+
+    // Helper functions
+    vec2 rotate(vec2 uv, float angle) {
+      float s = sin(angle);
+      float c = cos(angle);
+      return mat2(c, -s, s, c) * uv;
+    }
     
-    uniform float u_blurAmount;          // Maximum blur radius
-    uniform vec2 u_blurSharpnessRange;   // Range for blur sharpness/bias
-    uniform float u_blurNoiseScale;      // Scale for dynamic blur pattern
-    uniform float u_blurNoiseSpeed;      // Speed of blur noise
-    uniform float u_blurPulsingSpeed;    // Speed of blur bias oscillation
-
-    const float PI = 3.14159;
-    const float LY1 = 1.00, LY2 = 0.85, LY3 = 0.70;
-
-    float WAVE1_Y() { return 0.45 * u_resolution.y; }
-    float WAVE2_Y() { return 0.9 * u_resolution.y; }
-
-    ${noiseUtils}
-    ${simplex_noise}
-
-    float get_x() {
-      return 900.0 + gl_FragCoord.x - u_resolution.x / 2.0;
+    // Generate animated wave pattern directly
+    float animatedWave(vec2 uv, float time, vec2 freq, float amp, float phase) {
+      // Create wave pattern with direct sine calculation
+      float wave = sin(uv.x * freq.x + time * 2.0 + phase) * 
+                   sin(uv.y * freq.y + time * 1.7) * amp;
+      return wave;
     }
-
-    float smoothstep_(float t) 
-      { return t * t * t * (t * (6.0 * t - 15.0) + 10.0); }
-
-    float lerp(float a, float b, float t)
-      { return a * (1.0 - t) + b * t; }
-
-    float ease_in(float x)
-      { return 1.0 - cos((x * PI) * 0.5); }
-
-    ${noiseShaderFunctions}
-    ${blurShaderFunctions}
-
-    // Simplified background_noise adaptation to use uniforms
-    float background_noise(float offset) {
-      return background_noise(
-        offset, 
-        u_waveFreq.x, 
-        u_waveFreq.y, 
-        u_speed, 
-        u_noiseScale, 
-        u_noiseVerticalStretch, 
-        u_noiseSwirlSpeed, 
-        u_noiseFlowSpeed
-      );
-    }
-
-    // Simplified wave_y_noise adaptation to use uniforms
-    float wave_y_noise(float offset) {
-      return wave_y_noise(
-        offset, 
-        u_waveFreq.x, 
-        u_speed, 
-        u_noiseScale, 
-        u_noiseFlowSpeed
-      );
-    }
-
-    // Simplified calc_blur adaptation to use uniforms
-    float calc_blur(float offset) {
-      return calc_blur(
-        offset, 
-        u_waveFreq.x, 
-        u_speed, 
-        u_blurNoiseScale, 
-        u_blurNoiseSpeed
-      );
-    }
-
-    float wave_alpha(float Y, float wave_height, float offset) {
-      float wave_y = Y + wave_y_noise(offset) * wave_height;
-      float dist = wave_y - gl_FragCoord.y;
-      float blur_fac = calc_blur(offset);
-
-      const int blurQuality = 7;
-      const float PART = 1.0 / float(blurQuality);
-      float sum = 0.0;
-      for (int i = 0; i < blurQuality; i++) {
-        float t = blurQuality == 1 ? 0.5 : PART * float(i);
-        sum += wave_alpha_part(dist, blur_fac, t, u_blurSharpnessRange, u_blurAmount) * PART;
-      }
-      return sum;
-    }
-
-    vec3 calc_color(float lightness) {
-      lightness = clamp(lightness, 0.0, 1.0);
-      return texture2D(u_gradient, vec2(lightness, 0.5)).rgb;
+    
+    // Apply layered wave distortion to coordinates
+    vec2 distortCoords(vec2 uv, float time) {
+      // Basic wave patterns (more visible)
+      float wave1 = animatedWave(uv, time, u_waveFreq * 0.5, u_waveAmp.x * 2.0, 0.0);
+      float wave2 = animatedWave(uv * 1.5, time * 0.7, u_waveFreq * 0.8, u_waveAmp.y * 2.0, PI * 0.5);
+      
+      // Sample texture for additional organic distortion
+      vec2 waveUV = uv * u_waveFreq * 0.2 + vec2(time * 0.1, time * 0.05);
+      vec4 texWave = texture2D(u_waveTexture, waveUV);
+      
+      // Combine procedural waves with texture-based distortion
+      vec2 displacement;
+      displacement.x = wave1 + (texWave.r - 0.5) * u_waveAmp.x;
+      displacement.y = wave2 + (texWave.g - 0.5) * u_waveAmp.y;
+      
+      return uv + displacement;
     }
 
     void main() {
-      float bg_lightness = background_noise(-192.4);
-      float w1_lightness = background_noise( 273.3);
-      float w2_lightness = background_noise( 623.1);
-
-      float w1_alpha = wave_alpha(WAVE1_Y(), u_waveAmp.x * u_resolution.y, 112.5 * 48.75);
-      float w2_alpha = wave_alpha(WAVE2_Y(), u_waveAmp.y * u_resolution.y, 225.0 * 36.00);
-
-      float lightness = bg_lightness;
-      lightness = lerp(lightness, w2_lightness, w2_alpha);
-      lightness = lerp(lightness, w1_lightness, w1_alpha);
-
-      gl_FragColor = vec4(calc_color(lightness), 1.0);
+      // Normalize coordinates and fix aspect ratio
+      vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+      float aspectRatio = u_resolution.x / u_resolution.y;
+      uv.x *= aspectRatio;
+      
+      // Animate time 
+      float time = u_time * u_speed;
+      
+      // Base layer: animated background texture
+      vec2 bgUV = rotate(uv - 0.5, time * 0.05) + 0.5;
+      bgUV = bgUV * (0.8 + sin(time * 0.1) * 0.1) + vec2(time * 0.05, 0.0);
+      vec3 bgColor = texture2D(u_bgTexture, bgUV).rgb;
+      
+      // Apply wave distortions to coordinates
+      vec2 distortedUV = distortCoords(uv, time);
+      
+      // Create visible wave boundaries for clearer wave effect
+      float wave1 = animatedWave(uv, time, u_waveFreq, 1.0, 0.0);
+      float wave2 = animatedWave(uv * 1.2, time * 0.8, u_waveFreq * 1.5, 1.0, PI/3.0);
+      float wavePattern = (wave1 + wave2) * 0.5 + 0.5; // Normalized to 0-1
+      
+      // Sample noise texture with distorted coordinates
+      vec3 noiseColor = texture2D(u_noiseTexture, distortedUV).rgb;
+      
+      // Create dynamic blend factor based on time and wave pattern
+      float blendFactor = 0.5 + sin(time * 0.2) * 0.2;
+      
+      // Blend noise, background and wave pattern
+      float lightness = mix(noiseColor.r, bgColor.r, blendFactor) * 0.7 + wavePattern * 0.3;
+      
+      // Apply second wave distortion layer
+      vec2 wave2UV = distortCoords(uv * 1.5, time * 1.3);
+      float wave2Factor = texture2D(u_noiseTexture, wave2UV).g * 0.2;
+      
+      // Create final gradient input value with clear wave patterns
+      float finalValue = mix(lightness, wavePattern, 0.3) + wave2Factor;
+      
+      // Sample the gradient with the final value
+      vec3 finalColor = texture2D(u_gradient, vec2(finalValue, 0.5)).rgb;
+      
+      // Output the final color
+      gl_FragColor = vec4(finalColor, 1.0);
     }
   `;
   return shader;
