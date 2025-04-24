@@ -5,13 +5,21 @@ import {
   SheetHeader, 
   SheetTitle 
 } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 import GradientPanel from "../panels/GradientPanel";
-import { ColorStop } from "@/webgl/types";
+import { ColorStop, GradientStyle } from "@/webgl/types";
 
 interface ControlsSheetProps {
   // State values
   parameters: {
+    style: GradientStyle;
     speed: number;
     waveFreqX: number;
     waveFreqY: number;
@@ -32,6 +40,7 @@ interface ControlsSheetProps {
   
   // Event handlers
   handlers: {
+    handleStyleChange: (value: GradientStyle) => void;
     handleSpeedChange: (value: number[]) => void;
     handleWaveFreqXChange: (value: number[]) => void;
     handleWaveFreqYChange: (value: number[]) => void;
@@ -70,14 +79,14 @@ interface ControlsSheetProps {
  * Sheet component containing gradient controls
  */
 export const ControlsSheet: React.FC<ControlsSheetProps> = ({
-  // We keep parameters in the props for interface compatibility, but it's not used
-  // in the simplified UI. It might be used in future updates.
+  parameters,
   colorStops,
   handlers,
   resetHandlers,
   randomize
 }) => {
   const {
+    handleStyleChange,
     handleColorStopChange,
     addColorStop,
     removeColorStop,
@@ -99,6 +108,23 @@ export const ControlsSheet: React.FC<ControlsSheetProps> = ({
       <SheetHeader>
         <SheetTitle>Gradient Controls</SheetTitle>
       </SheetHeader>
+      
+      {/* Style Selector */}
+      <div className="py-4">
+        <h3 className="text-foreground/90 font-medium text-sm mb-2">Gradient Style</h3>
+        <Select 
+          value={parameters.style} 
+          onValueChange={(value: string) => handleStyleChange(value as GradientStyle)}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Select style" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={GradientStyle.MARSHMALLOW_SOUP}>Marshmallow Soup</SelectItem>
+            <SelectItem value={GradientStyle.WAVE_TRACER}>Wave Tracer</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       
       {/* Randomize Button */}
       <div className="py-4">

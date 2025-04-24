@@ -1,13 +1,16 @@
 import { useEffect, useRef, RefObject, MutableRefObject, useCallback } from "react";
 import createFragmentShader from "./shaders/fragmentShader";
 import { vertexShaderSource } from "./shaders/vertexShader";
-import { ColorStop, UniformLocations } from "./types";
+import { ColorStop, UniformLocations, GradientStyle } from "./types";
+import { generateWaveDisplacementTexture, generateRandomWaveParams } from './waveTracerTextures';
+import { TEXTURE_SIZE as CONSTANTS_TEXTURE_SIZE } from './constants';
 
 /**
  * Props for the useWebGLGradient hook
  */
 interface UseWebGLGradientProps {
   // Refs to parameter values
+  styleRef: MutableRefObject<GradientStyle>;
   speedRef: MutableRefObject<number>;
   waveFreqXRef: MutableRefObject<number>;
   waveFreqYRef: MutableRefObject<number>;
@@ -19,12 +22,13 @@ interface UseWebGLGradientProps {
 }
 
 // Texture resolution for performance
-const TEXTURE_SIZE = 512;
+const TEXTURE_SIZE = CONSTANTS_TEXTURE_SIZE;
 
 /**
  * Custom hook to manage WebGL gradient animation
  */
 export function useWebGLGradient({
+  styleRef,
   speedRef,
   waveFreqXRef,
   waveFreqYRef,
@@ -39,11 +43,23 @@ export function useWebGLGradient({
   const glRef = useRef<WebGLRenderingContext | null>(null);
   const programRef = useRef<WebGLProgram | null>(null);
   
-  // Texture refs
+  // Refs for texture objects
   const gradientTextureRef = useRef<WebGLTexture | null>(null);
   const backgroundTextureRef = useRef<WebGLTexture | null>(null);
   const noiseTextureRef = useRef<WebGLTexture | null>(null);
   const waveTextureRef = useRef<WebGLTexture | null>(null);
+  const waveDisplacementTextureRef = useRef<WebGLTexture | null>(null);
+  
+  // Ref to store randomized wave parameters
+  const waveParamsRef = useRef(generateRandomWaveParams());
+  
+  // Reference to track last texture update time
+  const lastUpdateTimeRef = useRef(Date.now());
+  
+  // FBO references for lower resolution rendering
+  const frameBufferRef = useRef<WebGLFramebuffer | null>(null);
+  const renderTextureRef = useRef<WebGLTexture | null>(null);
+  const resolutionScaleRef = useRef(0.5); // Render at half resolution
   
   const animationFrameId = useRef<number | null>(null);
   
@@ -54,10 +70,12 @@ export function useWebGLGradient({
     u_speed: null,
     u_waveFreq: null,
     u_waveAmp: null,
+    u_style: null,
     u_gradient: null,
     u_bgTexture: null,
     u_noiseTexture: null,
-    u_waveTexture: null
+    u_waveTexture: null,
+    u_waveDisplacementTexture: null
   });
 
   /**
@@ -286,12 +304,65 @@ export function useWebGLGradient({
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
   };
 
-  /**
-   * Regenerate all textures - called on initialization and randomize
-   */
-  const regenerateTextures = useCallback(() => {
-    const gl = glRef.current;
+  // Function to properly bind textures to texture units
+  const bindTextures = useCallback((gl: WebGLRenderingContext) => {
     if (!gl) return;
+    
+    // Make sure the current program is active
+    gl.useProgram(programRef.current);
+    
+    // Bind gradient texture to TEXTURE0
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gradientTextureRef.current);
+    gl.uniform1i(uniformLocations.current.u_gradient, 0);
+    
+    // Bind background texture to TEXTURE1
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, backgroundTextureRef.current);
+    gl.uniform1i(uniformLocations.current.u_bgTexture, 1);
+    
+    // Bind noise texture to TEXTURE2
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, noiseTextureRef.current);
+    gl.uniform1i(uniformLocations.current.u_noiseTexture, 2);
+    
+    // Bind wave texture to TEXTURE3
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, waveTextureRef.current);
+    gl.uniform1i(uniformLocations.current.u_waveTexture, 3);
+    
+    // Bind wave displacement texture to TEXTURE4
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, waveDisplacementTextureRef.current);
+    gl.uniform1i(uniformLocations.current.u_waveDisplacementTexture, 4);
+    
+    console.log('All textures bound to texture units');
+  }, []);
+
+  /**
+   * Regenerate all textures based on current parameters
+   * Called when parameters change or on initialization
+   */
+  const regenerateTextures = useCallback((gl: WebGLRenderingContext | null) => {
+    if (!gl) {
+      return;
+    }
+
+    // Track update time to force distinct randomization
+    lastUpdateTimeRef.current = Date.now();
+    console.log(`Regenerating textures at time: ${lastUpdateTimeRef.current}`);
+    
+    // Generate new random parameters for wave displacement texture
+    const newParams = generateRandomWaveParams();
+    waveParamsRef.current = newParams;
+    console.log('Regenerating textures with new params:', newParams);
+    
+    // Generate wave displacement texture for Wave Tracer style
+    const generateLocalWaveDisplacementTexture = (gl: WebGLRenderingContext, texture: WebGLTexture | null): void => {
+      if (!texture) return;
+      console.log('Generating wave displacement texture with params:', waveParamsRef.current);
+      generateWaveDisplacementTexture(gl, texture, waveParamsRef.current);
+    };
     
     // Regenerate background texture
     generateBackgroundTexture(gl, backgroundTextureRef.current);
@@ -301,7 +372,163 @@ export function useWebGLGradient({
     
     // Regenerate wave texture
     generateWaveTexture(gl, waveTextureRef.current);
-  }, []); // No dependencies since all accessed refs are stable
+    
+    // Regenerate wave displacement texture
+    generateLocalWaveDisplacementTexture(gl, waveDisplacementTextureRef.current);
+    
+    // Ensure all textures are properly bound
+    bindTextures(gl);
+    
+    console.log('All textures regenerated');
+  }, [bindTextures]); // Now includes bindTextures in dependencies
+
+  // Create a Frame Buffer Object for off-screen rendering
+  const createFrameBuffer = useCallback((gl: WebGLRenderingContext, width: number, height: number) => {
+    // Create and bind the framebuffer
+    const frameBuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer);
+    
+    // Create a texture to render to
+    const renderTexture = createTexture(gl);
+    gl.bindTexture(gl.TEXTURE_2D, renderTexture);
+    
+    // Define an empty texture - we'll render to this
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    
+    // Set texture parameters for rendering
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    
+    // Attach the texture to the framebuffer
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, renderTexture, 0
+    );
+    
+    // Check if framebuffer is complete
+    const fboStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (fboStatus !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error(`Framebuffer not complete: ${fboStatus}`);
+      return { frameBuffer: null, renderTexture: null };
+    }
+    
+    // Unbind the framebuffer for now
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    
+    return { frameBuffer, renderTexture };
+  }, []);
+
+  // Resize the FBO when canvas size changes
+  const resizeFrameBuffer = useCallback((gl: WebGLRenderingContext, width: number, height: number) => {
+    if (!renderTextureRef.current) return;
+    
+    // Scale down the resolution for better performance
+    const scaledWidth = Math.floor(width * resolutionScaleRef.current);
+    const scaledHeight = Math.floor(height * resolutionScaleRef.current);
+    
+    // Update the render texture size
+    gl.bindTexture(gl.TEXTURE_2D, renderTextureRef.current);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, scaledWidth, scaledHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    
+    console.log(`Resized FBO to ${scaledWidth}x${scaledHeight} (scale: ${resolutionScaleRef.current})`);
+  }, []);
+
+  // Render function (with FBO optimization)
+  const render = useCallback(() => {
+    const gl = glRef.current;
+    const program = programRef.current;
+    const canvas = canvasRef.current;
+    
+    if (!gl || !program || !canvas) return;
+    
+    // Start performance measurement
+    const startTime = performance.now();
+    
+    // Use the WebGL program
+    gl.useProgram(program);
+    
+    // Update time uniform (most frequent change)
+    if (uniformLocations.current.u_time) {
+      const now = performance.now() / 1000.0;
+      const speed = speedRef.current;
+      gl.uniform1f(uniformLocations.current.u_time, now * speed);
+    }
+    
+    // Make sure all textures are properly bound before rendering
+    bindTextures(gl);
+    
+    // Get current canvas size (original resolution)
+    const displayWidth = canvas.width;
+    const displayHeight = canvas.height;
+    
+    // Get scaled resolution for rendering
+    const renderWidth = Math.floor(displayWidth * resolutionScaleRef.current);
+    const renderHeight = Math.floor(displayHeight * resolutionScaleRef.current);
+    
+    // === FIRST PASS: Render to FBO at lower resolution ===
+    // Only use FBO if it's available and properly initialized
+    if (frameBufferRef.current && renderTextureRef.current) {
+      // Render to FBO
+      gl.bindFramebuffer(gl.FRAMEBUFFER, frameBufferRef.current);
+      gl.viewport(0, 0, renderWidth, renderHeight);
+      
+      // Update resolution uniform for the FBO size
+      if (uniformLocations.current.u_resolution) {
+        gl.uniform2f(uniformLocations.current.u_resolution, renderWidth, renderHeight);
+      }
+      
+      // Clear the framebuffer
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      
+      // Draw the scene to the framebuffer
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      
+      // === SECOND PASS: Render to screen at full resolution ===
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, displayWidth, displayHeight);
+      
+      // Clear the screen
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      
+      // Draw the frame buffer texture to the screen
+      gl.bindTexture(gl.TEXTURE_2D, renderTextureRef.current);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    } else {
+      // Fallback rendering directly to screen if FBO isn't ready
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, displayWidth, displayHeight);
+      
+      // Update resolution uniform for direct rendering
+      if (uniformLocations.current.u_resolution) {
+        gl.uniform2f(uniformLocations.current.u_resolution, displayWidth, displayHeight);
+      }
+      
+      // Clear the screen
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      
+      // Draw directly to the screen
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      
+      // Log that we're using fallback rendering
+      console.log('Using fallback direct rendering - FBO not ready');
+    }
+    
+    // Measure performance
+    const endTime = performance.now();
+    const frameTime = endTime - startTime;
+    
+    // Log performance only occasionally to avoid console spam
+    if (Math.random() < 0.01) { // Log roughly 1% of frames
+      console.log(`Frame render time: ${frameTime.toFixed(2)}ms (${(1000/frameTime).toFixed(1)} FPS)`);
+    }
+    
+    // Request the next frame
+    animationFrameId.current = requestAnimationFrame(render);
+  }, [bindTextures, speedRef]); // Added bindTextures to dependencies
 
   // Initialize WebGL and resources
   useEffect(() => {
@@ -309,52 +536,84 @@ export function useWebGLGradient({
     if (!canvas) return;
 
     // Initialize WebGL context
-    const gl = canvas.getContext('webgl');
+    const gl = canvas.getContext('webgl', {
+      // Enable premultiplied alpha for proper blending
+      premultipliedAlpha: true,
+      // Use antialiasing if available
+      antialias: true,
+      // Use default depth and stencil buffers
+      depth: false,
+      stencil: false
+    });
+    
     if (!gl) {
       console.error('WebGL not supported');
       return;
     }
     glRef.current = gl;
 
-    // Create shader program
-    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    if (!fragmentShader) return;
+    // Create and compile shaders
+    const createShader = (
+      gl: WebGLRenderingContext,
+      type: number,
+      source: string
+    ): WebGLShader | null => {
+      const shader = gl.createShader(type);
+      if (!shader) {
+        console.error("Failed to create shader");
+        return null;
+      }
+      
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      
+      // Check for compilation errors
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(`Shader compilation error: ${gl.getShaderInfoLog(shader)}`);
+        gl.deleteShader(shader);
+        return null;
+      }
+      
+      return shader;
+    };
+
+    const createProgram = (
+      gl: WebGLRenderingContext,
+      vertexShader: WebGLShader,
+      fragmentShader: WebGLShader
+    ): WebGLProgram | null => {
+      const program = gl.createProgram();
+      if (!program) {
+        console.error("Failed to create program");
+        return null;
+      }
+      
+      gl.attachShader(program, vertexShader);
+      gl.attachShader(program, fragmentShader);
+      gl.linkProgram(program);
+      
+      // Check for linking errors
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error(`Program linking error: ${gl.getProgramInfoLog(program)}`);
+        gl.deleteProgram(program);
+        return null;
+      }
+      
+      return program;
+    };
+
+    const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+    const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, createFragmentShader());
     
-    gl.shaderSource(fragmentShader, createFragmentShader());
-    gl.compileShader(fragmentShader);
-    
-    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      console.error('Fragment shader compilation failed:', gl.getShaderInfoLog(fragmentShader));
-      gl.deleteShader(fragmentShader);
+    if (!vertexShader || !fragmentShader) {
+      console.error("Failed to compile shaders");
       return;
     }
-
-    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    if (!vertexShader) return;
     
-    gl.shaderSource(vertexShader, vertexShaderSource);
-    gl.compileShader(vertexShader);
+    const program = createProgram(gl, vertexShader, fragmentShader);
     
-    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      console.error('Vertex shader compilation failed:', gl.getShaderInfoLog(vertexShader));
-      gl.deleteShader(fragmentShader);
-      gl.deleteShader(vertexShader);
-      return;
-    }
-
-    // Create program
-    const program = gl.createProgram();
-    if (!program) return;
-    
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error('Program linking failed:', gl.getProgramInfoLog(program));
-      gl.deleteProgram(program);
-      gl.deleteShader(fragmentShader);
-      gl.deleteShader(vertexShader);
+    if (!program) {
+      console.error("Failed to create program");
       return;
     }
     
@@ -393,10 +652,12 @@ export function useWebGLGradient({
       u_speed: gl.getUniformLocation(program, 'u_speed'),
       u_waveFreq: gl.getUniformLocation(program, 'u_waveFreq'),
       u_waveAmp: gl.getUniformLocation(program, 'u_waveAmp'),
+      u_style: gl.getUniformLocation(program, 'u_style'),
       u_gradient: gl.getUniformLocation(program, 'u_gradient'),
       u_bgTexture: gl.getUniformLocation(program, 'u_bgTexture'),
       u_noiseTexture: gl.getUniformLocation(program, 'u_noiseTexture'),
-      u_waveTexture: gl.getUniformLocation(program, 'u_waveTexture')
+      u_waveTexture: gl.getUniformLocation(program, 'u_waveTexture'),
+      u_waveDisplacementTexture: gl.getUniformLocation(program, 'u_waveDisplacementTexture')
     };
 
     // Create textures
@@ -404,6 +665,7 @@ export function useWebGLGradient({
     backgroundTextureRef.current = createTexture(gl);
     noiseTextureRef.current = createTexture(gl);
     waveTextureRef.current = createTexture(gl);
+    waveDisplacementTextureRef.current = createTexture(gl);
     
     // Initialize textures with data
     const gradientData = generateGradientTextureData(colorStops);
@@ -419,9 +681,10 @@ export function useWebGLGradient({
     gl.uniform1i(uniformLocations.current.u_bgTexture, 1);    // TEXTURE1
     gl.uniform1i(uniformLocations.current.u_noiseTexture, 2); // TEXTURE2
     gl.uniform1i(uniformLocations.current.u_waveTexture, 3);  // TEXTURE3
+    gl.uniform1i(uniformLocations.current.u_waveDisplacementTexture, 4);  // TEXTURE4
     
     // Generate background, noise and wave textures
-    regenerateTextures();
+    regenerateTextures(gl);
     
     // Set initial animation parameters with more pronounced waves
     if (uniformLocations.current.u_speed) {
@@ -454,79 +717,105 @@ export function useWebGLGradient({
           const h = Math.floor(height * dpr * scaleFactor);
           canvas.width = w;
           canvas.height = h;
-          glRef.current?.viewport(0, 0, w, h);
+          
+          // Update viewport for full canvas
+          gl.viewport(0, 0, w, h);
+          
+          // Update uniform if available
+          if (program && uniformLocations.current.u_resolution) {
+            gl.useProgram(program);
+            gl.uniform2f(uniformLocations.current.u_resolution, w, h);
+          }
+          
+          // Resize the FBO to match the new canvas size
+          resizeFrameBuffer(gl, w, h);
         }
       }
     });
+    
+    // Create and setup the FBO for lower-resolution rendering
+    const fboWidth = Math.floor(canvas.width * resolutionScaleRef.current);
+    const fboHeight = Math.floor(canvas.height * resolutionScaleRef.current);
+    const { frameBuffer, renderTexture } = createFrameBuffer(gl, fboWidth, fboHeight);
+    frameBufferRef.current = frameBuffer;
+    renderTextureRef.current = renderTexture;
+    
+    console.log(`Created FBO at ${fboWidth}x${fboHeight} (scale: ${resolutionScaleRef.current})`);
+    
+    // Make sure all textures are properly bound before starting animation
+    bindTextures(gl);
+    
+    // Set all initial uniform values
+    if (uniformLocations.current.u_speed) {
+      gl.uniform1f(uniformLocations.current.u_speed, speedRef.current);
+    }
+    
+    if (uniformLocations.current.u_waveFreq) {
+      gl.uniform2f(uniformLocations.current.u_waveFreq, waveFreqXRef.current, waveFreqYRef.current);
+    }
+    
+    if (uniformLocations.current.u_waveAmp) {
+      gl.uniform2f(uniformLocations.current.u_waveAmp, waveAmpXRef.current, waveAmpYRef.current);
+    }
+    
+    if (uniformLocations.current.u_style) {
+      const styleValue = styleRef.current === GradientStyle.MARSHMALLOW_SOUP ? 0.0 : 1.0;
+      gl.uniform1f(uniformLocations.current.u_style, styleValue);
+    }
+    
+    // Observe resize events
     resizeObserver.observe(canvas);
-
-    // Animation loop
-    const startTime = Date.now();
-    const render = () => {
-      const gl = glRef.current;
-      const program = programRef.current;
-      const canvas = canvasRef.current;
-      if (!gl || !program || !canvas) return;
-
-      const {
-        u_time,
-        u_resolution,
-      } = uniformLocations.current;
-
-      // Only update time-based uniforms each frame
-      const currentTime = (Date.now() - startTime) * 0.001;
-      gl.useProgram(program);
-      
-      // Set basic uniforms
-      if (u_time) gl.uniform1f(u_time, currentTime);
-      if (u_resolution) gl.uniform2f(u_resolution, canvas.width, canvas.height);
-
-      // Render
-      gl.clearColor(0.0, 0.0, 0.0, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-      animationFrameId.current = requestAnimationFrame(render);
-    };
-
-    render(); // Start the animation loop
+    
+    // Start the animation loop
+    render();
 
     // Cleanup function
     return () => {
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }
-      resizeObserver.unobserve(canvas);
       
-      const gl = glRef.current;
+      // Clean up WebGL resources
       if (gl) {
-        gl.deleteProgram(programRef.current);
-        gl.deleteBuffer(positionBuffer);
-        gl.deleteTexture(gradientTextureRef.current);
-        gl.deleteTexture(backgroundTextureRef.current);
-        gl.deleteTexture(noiseTextureRef.current);
-        gl.deleteTexture(waveTextureRef.current);
+        if (frameBufferRef.current) {
+          gl.deleteFramebuffer(frameBufferRef.current);
+        }
+        if (renderTextureRef.current) {
+          gl.deleteTexture(renderTextureRef.current);
+        }
+        if (gradientTextureRef.current) {
+          gl.deleteTexture(gradientTextureRef.current);
+        }
+        if (backgroundTextureRef.current) {
+          gl.deleteTexture(backgroundTextureRef.current);
+        }
+        if (noiseTextureRef.current) {
+          gl.deleteTexture(noiseTextureRef.current);
+        }
+        if (waveTextureRef.current) {
+          gl.deleteTexture(waveTextureRef.current);
+        }
+        if (waveDisplacementTextureRef.current) {
+          gl.deleteTexture(waveDisplacementTextureRef.current);
+        }
       }
       
-      glRef.current = null;
-      programRef.current = null;
-      gradientTextureRef.current = null;
-      backgroundTextureRef.current = null;
-      noiseTextureRef.current = null;
-      waveTextureRef.current = null;
-      uniformLocations.current = {
-        u_time: null,
-        u_resolution: null,
-        u_speed: null,
-        u_waveFreq: null,
-        u_waveAmp: null,
-        u_gradient: null,
-        u_bgTexture: null,
-        u_noiseTexture: null,
-        u_waveTexture: null
-      };
+      resizeObserver.disconnect();
     };
-  }, [colorStops, speedRef, waveFreqXRef, waveFreqYRef, waveAmpXRef, waveAmpYRef, regenerateTextures]); // Include all dependencies
+  }, [
+    createFrameBuffer, 
+    regenerateTextures, 
+    resizeFrameBuffer, 
+    render, 
+    colorStops, 
+    speedRef, 
+    waveFreqXRef, 
+    waveFreqYRef, 
+    waveAmpXRef, 
+    waveAmpYRef,
+    bindTextures,  // Add missing bindTextures dependency
+    styleRef       // Add missing styleRef dependency
+  ]); // Fixed missing dependencies
 
   // Update animation parameters when they change
   useEffect(() => {
@@ -569,6 +858,13 @@ export function useWebGLGradient({
    * Randomize function to regenerate all textures and animations
    */
   const randomize = () => {
+    console.log('Randomize function called');
+    // Randomly choose a style
+    if (styleRef) {
+      styleRef.current = Math.random() > 0.5 ? GradientStyle.MARSHMALLOW_SOUP : GradientStyle.WAVE_TRACER;
+      console.log('New style:', styleRef.current);
+    }
+    
     // Generate stronger wave parameters
     if (speedRef && waveFreqXRef && waveFreqYRef && waveAmpXRef && waveAmpYRef) {
       // Use random values but ensure they're within effective ranges for visible waves
@@ -577,29 +873,45 @@ export function useWebGLGradient({
       waveFreqYRef.current = 2.0 + Math.random() * 4.0; // 2.0 to 6.0
       waveAmpXRef.current = 0.05 + Math.random() * 0.15; // 0.05 to 0.2
       waveAmpYRef.current = 0.05 + Math.random() * 0.15; // 0.05 to 0.2
+      console.log('New wave parameters:', {
+        speed: speedRef.current,
+        freqX: waveFreqXRef.current,
+        freqY: waveFreqYRef.current,
+        ampX: waveAmpXRef.current,
+        ampY: waveAmpYRef.current
+      });
     }
     
-    // Regenerate textures with the new parameters
-    regenerateTextures();
-    
-    // Update uniforms with new values
-    const gl = glRef.current;
-    const program = programRef.current;
-    if (gl && program) {
-      gl.useProgram(program);
+    // Force a short delay to ensure timestamp changes
+    setTimeout(() => {
+      // Regenerate textures with the new parameters
+      console.log('Calling regenerateTextures from randomize');
+      regenerateTextures(glRef.current);
       
-      if (uniformLocations.current.u_speed) {
-        gl.uniform1f(uniformLocations.current.u_speed, speedRef.current);
+      // Update uniforms with new values
+      const gl = glRef.current;
+      const program = programRef.current;
+      if (gl && program) {
+        gl.useProgram(program);
+        
+        if (uniformLocations.current.u_speed) {
+          gl.uniform1f(uniformLocations.current.u_speed, speedRef.current);
+        }
+        
+        if (uniformLocations.current.u_waveFreq) {
+          gl.uniform2f(uniformLocations.current.u_waveFreq, waveFreqXRef.current, waveFreqYRef.current);
+        }
+        
+        if (uniformLocations.current.u_waveAmp) {
+          gl.uniform2f(uniformLocations.current.u_waveAmp, waveAmpXRef.current, waveAmpYRef.current);
+        }
+        
+        if (uniformLocations.current.u_style) {
+          const styleValue = styleRef.current === GradientStyle.MARSHMALLOW_SOUP ? 0.0 : 1.0;
+          gl.uniform1f(uniformLocations.current.u_style, styleValue);
+        }
       }
-      
-      if (uniformLocations.current.u_waveFreq) {
-        gl.uniform2f(uniformLocations.current.u_waveFreq, waveFreqXRef.current, waveFreqYRef.current);
-      }
-      
-      if (uniformLocations.current.u_waveAmp) {
-        gl.uniform2f(uniformLocations.current.u_waveAmp, waveAmpXRef.current, waveAmpYRef.current);
-      }
-    }
+    }, 10);
   };
 
   return [canvasRef, randomize];

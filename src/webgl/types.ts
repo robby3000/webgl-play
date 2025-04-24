@@ -7,9 +7,20 @@ export interface CreateFragmentShader {
 }
 
 /**
+ * Gradient animation style options
+ */
+export enum GradientStyle {
+  MARSHMALLOW_SOUP = "marshmallow_soup",
+  WAVE_TRACER = "wave_tracer"
+}
+
+/**
  * Common interface for gradient parameters
  */
 export interface GradientParameters {
+  // Style selection
+  style: GradientStyle;
+  
   // Animation parameters
   speed: number;
   
@@ -56,11 +67,15 @@ export interface UniformLocations {
   u_waveFreq: WebGLUniformLocation | null;
   u_waveAmp: WebGLUniformLocation | null;
   
+  // Style selection uniform (updated when style changes)
+  u_style: WebGLUniformLocation | null;
+  
   // Texture sampler uniforms (set once)
   u_gradient: WebGLUniformLocation | null;
   u_bgTexture: WebGLUniformLocation | null;
   u_noiseTexture: WebGLUniformLocation | null;
   u_waveTexture: WebGLUniformLocation | null;
+  u_waveDisplacementTexture: WebGLUniformLocation | null;
 }
 
 /**

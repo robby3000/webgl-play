@@ -27,4 +27,6 @@ archive/package-lock.json
 .firebase/
 
 webgl-play-v2-plan.md
+webgl-play-v2.md
 example-code.ts
+

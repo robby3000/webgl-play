@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { ColorStop, GradientParameters } from '../webgl/types';
+import { ColorStop, GradientParameters, GradientStyle } from '../webgl/types';
 import { 
   DEFAULT_PARAMETERS, 
   DEFAULT_COLOR_STOPS, 
@@ -11,6 +11,9 @@ import {
  * Custom hook to manage gradient state parameters
  */
 export function useGradientState() {
+  // Gradient style
+  const [style, setStyle] = useState<GradientStyle>(DEFAULT_PARAMETERS.style);
+  
   // Base parameters
   const [speed, setSpeed] = useState<number>(DEFAULT_PARAMETERS.speed);
   const [waveFreqX, setWaveFreqX] = useState<number>(DEFAULT_PARAMETERS.waveFreqX);
@@ -36,6 +39,7 @@ export function useGradientState() {
   const [colorStops, setColorStops] = useState<ColorStop[]>(DEFAULT_COLOR_STOPS);
   
   // Refs for WebGL rendering
+  const styleRef = useRef(style);
   const speedRef = useRef(speed);
   const waveFreqXRef = useRef(waveFreqX);
   const waveFreqYRef = useRef(waveFreqY);
@@ -57,6 +61,7 @@ export function useGradientState() {
   
   // Update refs when state changes
   useEffect(() => {
+    styleRef.current = style;
     speedRef.current = speed;
     waveFreqXRef.current = waveFreqX;
     waveFreqYRef.current = waveFreqY;
@@ -75,11 +80,16 @@ export function useGradientState() {
     blurNoiseSpeedRef.current = blurNoiseSpeed;
     blurPulsingSpeedRef.current = blurPulsingSpeed;
   }, [
-    speed, waveFreqX, waveFreqY, waveAmpX, waveAmpY,
+    style, speed, waveFreqX, waveFreqY, waveAmpX, waveAmpY,
     noiseScale, noiseVerticalStretch, noiseSwirlSpeed, noiseFlowSpeed,
     blurAmount, blurSharpnessMin, blurSharpnessMax, 
     blurNoiseScale, blurNoiseSpeed, blurPulsingSpeed
   ]);
+  
+  // Style change handler
+  const handleStyleChange = useCallback((newStyle: GradientStyle) => {
+    setStyle(newStyle);
+  }, []);
   
   // Update handlers for each parameter
   const handleSpeedChange = useCallback((value: number[]) => setSpeed(value[0]), []);
@@ -100,10 +110,10 @@ export function useGradientState() {
   const handleBlurNoiseSpeedChange = useCallback((value: number[]) => setBlurNoiseSpeed(value[0]), []);
   const handleBlurPulsingSpeedChange = useCallback((value: number[]) => setBlurPulsingSpeed(value[0]), []);
   
-  // Color stop handlers
+  // Event handlers for color stops
   const handleColorStopChange = useCallback((id: number, field: 'position' | 'color', value: string | number) => {
-    setColorStops(prevStops =>
-      prevStops.map(stop =>
+    setColorStops(prevStops => 
+      prevStops.map(stop => 
         stop.id === id ? { ...stop, [field]: value } : stop
       )
     );
@@ -111,23 +121,48 @@ export function useGradientState() {
   
   const addColorStop = useCallback(() => {
     setColorStops(prevStops => {
-      // Find a position between the last two stops or add at the end
-      const lastPos = prevStops.length > 0 ? prevStops[prevStops.length - 1].position : 0;
-      const secondLastPos = prevStops.length > 1 ? prevStops[prevStops.length - 2].position : 0;
-      const newPos = Math.min(1.0, (lastPos + secondLastPos) / 2 + 0.1); // Simple heuristic
-      return [
-        ...prevStops,
-        { id: Date.now(), position: newPos, color: "#ffffff" } // Add white stop
-      ].sort((a,b) => a.position - b.position); // Keep sorted
+      const newId = Date.now();
+      // Place the new stop at the middle position if possible
+      const positions = prevStops.map(stop => stop.position).sort((a, b) => a - b);
+      let newPosition = 0.5;
+      
+      // Try to find the largest gap between stops
+      if (positions.length >= 2) {
+        let maxGap = 0;
+        let gapPos = 0.5;
+        
+        for (let i = 0; i < positions.length - 1; i++) {
+          const gap = positions[i+1] - positions[i];
+          if (gap > maxGap) {
+            maxGap = gap;
+            gapPos = positions[i] + gap / 2;
+          }
+        }
+        
+        newPosition = gapPos;
+      }
+      
+      // Add new stop with a random color
+      return [...prevStops, {
+        id: newId,
+        position: newPosition,
+        // Use a semi-random color
+        color: `hsl(${Math.floor(Math.random() * 360)}, 70%, 60%)`
+      }].sort((a, b) => a.position - b.position);
     });
   }, []);
   
   const removeColorStop = useCallback((id: number) => {
-    setColorStops(prevStops => prevStops.filter(stop => stop.id !== id));
+    setColorStops(prevStops => {
+      // Don't allow removing all stops
+      if (prevStops.length <= 2) return prevStops;
+      return prevStops.filter(stop => stop.id !== id);
+    });
   }, []);
   
-  // Reset functions for parameter groups
+  // Reset functions
   const resetBaseParameters = useCallback(() => {
+    setStyle(DEFAULT_PARAMETERS.style);
     setSpeed(DEFAULT_PARAMETERS.speed);
     setWaveFreqX(DEFAULT_PARAMETERS.waveFreqX);
     setWaveFreqY(DEFAULT_PARAMETERS.waveFreqY);
@@ -168,6 +203,7 @@ export function useGradientState() {
     const randomParams = randomizeParameters();
     
     // Apply randomized parameters
+    setStyle(randomParams.style);
     setSpeed(randomParams.speed);
     setWaveFreqX(randomParams.waveFreqX);
     setWaveFreqY(randomParams.waveFreqY);
@@ -192,6 +228,7 @@ export function useGradientState() {
 
   // Create parameter objects for consumers
   const parameters: GradientParameters = {
+    style,
     speed,
     waveFreqX,
     waveFreqY,
@@ -211,6 +248,7 @@ export function useGradientState() {
 
   // Group all refs for WebGL hook
   const parameterRefs = {
+    styleRef,
     speedRef,
     waveFreqXRef,
     waveFreqYRef,
@@ -230,6 +268,7 @@ export function useGradientState() {
   
   // Group all handlers for UI components
   const handlers = {
+    handleStyleChange,
     handleSpeedChange,
     handleWaveFreqXChange,
     handleWaveFreqYChange,

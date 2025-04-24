@@ -1,10 +1,13 @@
 /**
  * Default values and constraints for gradient parameters
  */
-import { GradientParameters, ColorStop } from "../webgl/types";
+import { GradientParameters, ColorStop, GradientStyle } from "../webgl/types";
 
 // Default values for all parameters
 export const DEFAULT_PARAMETERS: GradientParameters = {
+  // Gradient style
+  style: GradientStyle.MARSHMALLOW_SOUP,
+  
   // Animation parameters - increased for more visible animation
   speed: 1.0,
   
@@ -63,6 +66,9 @@ export const DEFAULT_COLOR_STOPS: ColorStop[] = [
  */
 export function randomizeParameters(): GradientParameters {
   return {
+    // Randomly choose a style
+    style: Math.random() > 0.5 ? GradientStyle.MARSHMALLOW_SOUP : GradientStyle.WAVE_TRACER,
+    
     // Higher animation speed range for better visualization
     speed: 0.5 + Math.random() * 1.5,
     
